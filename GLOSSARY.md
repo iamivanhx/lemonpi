@@ -23,3 +23,7 @@ _Avoid_: health, availability
 **Unknown**:
 A readiness state meaning a check could not be verified safely; it is never counted as ready or as failed.
 _Avoid_: skipped, indeterminate
+
+**Skipped**:
+The outcome of a part a run deliberately left alone (a managed package named in `--skip`, or private skills under `--skip-skills`); it is reported but never counted as a failure.
+_Avoid_: ignored, excluded
