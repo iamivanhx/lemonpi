@@ -1,10 +1,30 @@
+import { join } from 'node:path';
 import { sanitizeDiagnostic } from '../sanitize.js';
 import { catalog } from './catalog.js';
+import { classifyPackages } from './classify.js';
 import { identifySource } from './identity.js';
 import { readSettings } from './settings.js';
 
 function itemName(id, source, env) {
   return sanitizeDiagnostic(`${id} (${source})`, env);
+}
+
+async function classifySettings(ctx, globalDeclarations) {
+  const projectSettings = await readSettings(ctx, join(ctx.cwd, '.pi', 'settings.json'));
+  return classifyPackages(
+    catalog,
+    globalDeclarations,
+    projectSettings.ok ? projectSettings.declarations : [],
+    ctx.flags.skip,
+  );
+}
+
+function noticeItems(notices, env) {
+  return notices.map(({ name, reason }) => ({
+    name: sanitizeDiagnostic(name, env),
+    kind: 'notice',
+    reason: sanitizeDiagnostic(reason, env),
+  }));
 }
 
 function installFailureReason(source, result, env) {
@@ -23,24 +43,23 @@ async function installMissing(ctx) {
   if (!settings.ok) {
     const path = sanitizeDiagnostic(settings.path, ctx.env);
     const error = sanitizeDiagnostic(settings.error, ctx.env);
+    const projectOnly = await classifySettings(ctx, []);
     return [{
       name: 'Pi settings',
       kind: 'action',
       outcome: 'failed',
       reason: `can't parse ${path}: ${error}`,
       required: true,
-    }];
+    }, ...noticeItems(projectOnly.notices, ctx.env)];
   }
 
-  const declaredIdentities = new Set(
-    settings.declarations.map(({ identity }) => identity).filter(Boolean),
-  );
+  const classification = await classifySettings(ctx, settings.declarations);
+  const { packages: classifiedPackages } = classification;
   const items = [];
-  for (const entry of catalog) {
+  for (const { id, source, required, state, declarations } of classifiedPackages) {
     if (ctx.signal.aborted) break;
-    const { id, source, required } = entry;
     const name = itemName(id, source, ctx.env);
-    if (ctx.flags.skip.includes(id)) {
+    if (state === 'skipped') {
       items.push({
         name,
         kind: 'action',
@@ -50,11 +69,20 @@ async function installMissing(ctx) {
       });
       continue;
     }
+    if (state === 'duplicated') {
+      items.push({
+        name,
+        kind: 'action',
+        outcome: 'failed',
+        reason: `declared ${declarations.length} times in global settings; remove the extra declarations`,
+        required,
+      });
+      continue;
+    }
 
     const identity = identifySource(source)?.identity;
-    const declarations = settings.declarations.filter((declaration) => declaration.identity === identity);
-    const pinned = declarations.length === 1 && declarations[0].pinned;
-    if (declaredIdentities.has(identity) && !pinned) {
+    const pinned = state === 'pinned';
+    if (state === 'ok') {
       items.push({ name, kind: 'action', outcome: 'ok', required });
       continue;
     }
@@ -106,7 +134,6 @@ async function installMissing(ctx) {
       continue;
     }
 
-    declaredIdentities.add(identity);
     items.push({
       name,
       kind: 'action',
@@ -117,7 +144,7 @@ async function installMissing(ctx) {
       required,
     });
   }
-  return items;
+  return [...items, ...noticeItems(classification.notices, ctx.env)];
 }
 
 export const packagesPart = Object.freeze({
@@ -131,6 +158,7 @@ export const packagesPart = Object.freeze({
     if (!settings.ok) {
       const path = sanitizeDiagnostic(settings.path, ctx.env);
       const error = sanitizeDiagnostic(settings.error, ctx.env);
+      const projectOnly = await classifySettings(ctx, []);
       return [
         {
           name: 'Pi settings',
@@ -144,15 +172,14 @@ export const packagesPart = Object.freeze({
           outcome: 'unknown',
           reason: 'settings unreadable',
         })),
+        ...noticeItems(projectOnly.notices, ctx.env),
       ];
     }
 
-    const declaredIdentities = new Set(
-      settings.declarations.map(({ identity }) => identity).filter(Boolean),
-    );
-    return catalog.map(({ id, source }) => {
+    const classification = await classifySettings(ctx, settings.declarations);
+    const packageItems = classification.packages.map(({ id, source, state, declarations }) => {
       const name = itemName(id, source, ctx.env);
-      if (ctx.flags.skip.includes(id)) {
+      if (state === 'skipped') {
         return {
           name,
           kind: 'inventory',
@@ -160,9 +187,15 @@ export const packagesPart = Object.freeze({
           reason: 'held back by --skip',
         };
       }
-      const identity = identifySource(source)?.identity;
-      const declarations = settings.declarations.filter((declaration) => declaration.identity === identity);
-      if (declarations.length === 1 && declarations[0].pinned) {
+      if (state === 'duplicated') {
+        return {
+          name,
+          kind: 'inventory',
+          outcome: 'drift',
+          reason: `declared ${declarations.length} times — remove the extras`,
+        };
+      }
+      if (state === 'pinned') {
         return {
           name,
           kind: 'inventory',
@@ -173,13 +206,13 @@ export const packagesPart = Object.freeze({
           ),
         };
       }
-      const installed = identity !== undefined && declaredIdentities.has(identity);
       return {
         name,
         kind: 'inventory',
-        outcome: installed ? 'ok' : 'drift',
-        ...(!installed ? { reason: 'not installed — `install` adds it' } : {}),
+        outcome: state === 'ok' ? 'ok' : 'drift',
+        ...(state !== 'ok' ? { reason: 'not installed — `install` adds it' } : {}),
       };
     });
+    return [...packageItems, ...noticeItems(classification.notices, ctx.env)];
   },
 });

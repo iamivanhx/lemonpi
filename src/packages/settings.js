@@ -5,8 +5,7 @@ function unreadable(path, error) {
   return { ok: false, path, error: String(error) };
 }
 
-export async function readSettings(ctx) {
-  const path = join(ctx.agentDir, 'settings.json');
+export async function readSettings(ctx, path = join(ctx.agentDir, 'settings.json')) {
   let contents;
   try {
     contents = await ctx.readFile(path);
