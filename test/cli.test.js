@@ -286,6 +286,245 @@ test('Pi failure diagnostics retain useful details without leaking sensitive val
   }
 });
 
+test('Pi diagnostics withhold complete multiline private-key blocks but retain adjacent lines', async (t) => {
+  const keyBody = 'MIIEfixtureCompletePrivateKeyBodyNotARealSecret';
+  const fake = createFakeHost(t, {
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: 'stdout diagnostic remains',
+      stderr: [
+        'harmless diagnostic before key',
+        '-----BEGIN PRIVATE KEY-----',
+        keyBody,
+        '-----END PRIVATE KEY-----',
+        'harmless diagnostic after key',
+      ].join('\n'),
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  assert.doesNotMatch(output, new RegExp(keyBody));
+  assert.match(output, /harmless diagnostic before key/);
+  assert.match(output, /harmless diagnostic after key/);
+});
+
+test('Pi diagnostics withhold a truncated private-key block through end of output', async (t) => {
+  const keyBody = ['MIIEfixtureTruncatedPrivateKeyBody', 'secondBase64LineMustNotLeak'];
+  const truncatedTail = 'diagnostic-looking tail is part of the incomplete key';
+  const fake = createFakeHost(t, {
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: '',
+      stderr: [
+        'harmless diagnostic before truncated key',
+        '-----BEGIN RSA PRIVATE KEY-----',
+        ...keyBody,
+        truncatedTail,
+      ].join('\n'),
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  for (const body of keyBody) assert.ok(!output.includes(body), `summary must not disclose ${body}`);
+  assert.match(output, /harmless diagnostic before truncated key/);
+  assert.doesNotMatch(output, /diagnostic-looking tail is part of the incomplete key/);
+  assert.match(output, /\[diagnostic withheld\]/);
+});
+
+test('Pi diagnostics redact quoted organization ID fields with UUID values', async (t) => {
+  const organizationIds = [
+    '550e8400-e29b-41d4-a716-446655440000',
+    '0f8fad5b-d9cb-469f-a165-70867728950e',
+  ];
+  const fake = createFakeHost(t, {
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: `stdout diagnostic before {"organizationId":"${organizationIds[0]}"} stdout diagnostic after`,
+      stderr: `stderr diagnostic before {"organization_id":"${organizationIds[1]}"} stderr diagnostic after`,
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  for (const id of organizationIds) assert.ok(!output.includes(id), `summary must not disclose ${id}`);
+  assert.match(output, /stdout diagnostic before/);
+  assert.match(output, /stdout diagnostic after/);
+  assert.match(output, /stderr diagnostic before/);
+  assert.match(output, /stderr diagnostic after/);
+});
+
+test('Pi diagnostics redact JSON access and refresh token fields', async (t) => {
+  const tokens = [
+    'fixture-access-value',
+    'fixture-refresh-value',
+    'fixture-extended-access-value',
+    'fixture-extended-refresh-value',
+  ];
+  const fake = createFakeHost(t, {
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: `stdout diagnostic before {"access_token":"${tokens[0]}","vendor_access_token_value":"${tokens[2]}"} stdout diagnostic after`,
+      stderr: `stderr diagnostic before {"refresh_token":"${tokens[1]}","service_refresh_token_value":"${tokens[3]}"} stderr diagnostic after`,
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  for (const token of tokens) assert.ok(!output.includes(token), `summary must not disclose ${token}`);
+  assert.match(output, /stdout diagnostic before/);
+  assert.match(output, /stdout diagnostic after/);
+  assert.match(output, /stderr diagnostic before/);
+  assert.match(output, /stderr diagnostic after/);
+});
+
+test('Pi diagnostics redact multiline quoted password values and keep surrounding diagnostics', async (t) => {
+  const passwordLines = ['fixture-multiline-password-first', 'fixture-multiline-password-second'];
+  const fake = createFakeHost(t, {
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: 'stdout diagnostic remains',
+      stderr: [
+        'harmless diagnostic before password',
+        `password="${passwordLines[0]}`,
+        `${passwordLines[1]}"`,
+        'harmless diagnostic after password',
+      ].join('\n'),
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  for (const line of passwordLines) assert.ok(!output.includes(line), `summary must not disclose ${line}`);
+  assert.match(output, /harmless diagnostic before password/);
+  assert.match(output, /harmless diagnostic after password/);
+});
+
+test('Pi diagnostics scrub known environment secrets containing newlines as a whole', async (t) => {
+  const secret = 'fixture-env-secret-line-one\nfixture-env-secret-line-two';
+  const fake = createFakeHost(t, {
+    env: { LEMON_REFRESH_TOKEN: secret },
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: 'stdout diagnostic remains',
+      stderr: `harmless diagnostic before secret\n${secret}\nharmless diagnostic after secret`,
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  assert.doesNotMatch(output, /fixture-env-secret-line-one|fixture-env-secret-line-two/);
+  assert.match(output, /harmless diagnostic before secret/);
+  assert.match(output, /harmless diagnostic after secret/);
+});
+
+test('Pi diagnostics redact pretty-printed JSON token fields across lines', async (t) => {
+  const tokens = ['fixture-access-pretty-value', 'fixture-refresh-pretty-value'];
+  const fake = createFakeHost(t, {
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: [
+        'stdout diagnostic before JSON',
+        '{',
+        `  "access_token":`,
+        `  "${tokens[0]}"`,
+        '}',
+        'stdout diagnostic after JSON',
+      ].join('\n'),
+      stderr: [
+        'stderr diagnostic before JSON',
+        '{',
+        `  "refresh_token":`,
+        `  "${tokens[1]}"`,
+        '}',
+        'stderr diagnostic after JSON',
+      ].join('\n'),
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  for (const token of tokens) assert.ok(!output.includes(token), `summary must not disclose ${token}`);
+  assert.match(output, /stdout diagnostic before JSON/);
+  assert.match(output, /stdout diagnostic after JSON/);
+  assert.match(output, /stderr diagnostic before JSON/);
+  assert.match(output, /stderr diagnostic after JSON/);
+});
+
+test('Pi diagnostics withhold an incomplete quoted credential field through end', async (t) => {
+  const leakedLines = ['fixture-incomplete-password-first', 'fixture-incomplete-password-second'];
+  const fake = createFakeHost(t, {
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: 'stdout diagnostic remains',
+      stderr: [
+        'harmless diagnostic before incomplete credential',
+        `password="${leakedLines[0]}`,
+        leakedLines[1],
+        'untrusted tail remains inside the unterminated value',
+      ].join('\n'),
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  for (const value of leakedLines) assert.ok(!output.includes(value), `summary must not disclose ${value}`);
+  assert.doesNotMatch(output, /untrusted tail remains inside the unterminated value/);
+  assert.match(output, /harmless diagnostic before incomplete credential/);
+  assert.match(output, /\[diagnostic withheld\]/);
+});
+
+test('Pi diagnostics withhold an incomplete quoted organization ID through end', async (t) => {
+  const organizationId = '550e8400-e29b-41d4-a716-446655440000';
+  const trailingText = 'untrusted output after the incomplete organization field';
+  const fake = createFakeHost(t, {
+    runnerResults: [{
+      code: 13,
+      signal: null,
+      stdout: 'stdout diagnostic remains',
+      stderr: [
+        'harmless diagnostic before organization field',
+        `{"organizationId":"${organizationId}`,
+        trailingText,
+      ].join('\n'),
+    }],
+  });
+
+  const code = await run(['install'], fake.host);
+  const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+  assert.equal(code, 2);
+  assert.doesNotMatch(output, new RegExp(organizationId));
+  assert.doesNotMatch(output, /untrusted output after the incomplete organization field/);
+  assert.match(output, /harmless diagnostic before organization field/);
+  assert.match(output, /\[diagnostic withheld\]/);
+});
+
 test('unparseable Pi output reports the command without echoing arbitrary payloads', async (t) => {
   const payload = 'not-a-semver ivan@example.test organization_id=org_9bf2 and api_key=fixture-api-key';
   const fake = createFakeHost(t, {
