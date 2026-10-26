@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
 
@@ -273,4 +274,104 @@ test('shared fake host supplies isolated homes, captured streams, runner, stdin,
   assert.equal(fake.host.signal, fake.abortController.signal);
   fake.abortController.abort('SIGINT');
   assert.equal(fake.host.signal.reason, 'SIGINT');
+});
+
+test('fake-host byte reads, symlink stats, and realpath support regular, chained, and dangling links', async (t) => {
+  const fake = createFakeHost(t);
+  const directory = join(fake.tmpdir, 'symlinks');
+  const file = join(directory, 'file.bin');
+  const firstLink = join(directory, 'first-link');
+  const secondLink = join(directory, 'second-link');
+  const danglingLink = join(directory, 'dangling-link');
+  const missingFile = join(directory, 'missing.bin');
+  await fake.host.mkdir(directory, { recursive: true });
+  await writeFile(file, Buffer.from([0, 32, 255]));
+  await symlink(secondLink, firstLink);
+  await symlink(file, secondLink);
+  await symlink('missing.bin', danglingLink);
+
+  assert.deepEqual(await fake.host.readBytes(file), Buffer.from([0, 32, 255]));
+  assert.deepEqual(await fake.host.readBytes(missingFile), { notFound: true });
+  const linkFacts = await fake.host.lstat(firstLink);
+  assert.equal(linkFacts.isFile, false);
+  assert.equal(linkFacts.isDirectory, false);
+  assert.equal(linkFacts.isSymbolicLink, true);
+  assert.equal(typeof linkFacts.mode, 'number');
+  assert.equal((await fake.host.stat(firstLink)).isFile, true);
+  assert.equal((await fake.host.lstat(danglingLink)).isSymbolicLink, true);
+  assert.deepEqual(await fake.host.stat(danglingLink), { notFound: true });
+  assert.equal(await fake.host.realpath(firstLink), await realpath(file));
+  let danglingRealpath;
+  await assert.doesNotReject(async () => {
+    danglingRealpath = await fake.host.realpath(danglingLink);
+  });
+  assert.equal(danglingRealpath, join(await realpath(directory), 'missing.bin'));
+});
+
+test('fake-host filesystem writes honor modes, rename, chmod, and missing rm', async (t) => {
+  const fake = createFakeHost(t);
+  const directory = join(fake.tmpdir, 'writes', 'nested');
+  const source = join(directory, 'source.bin');
+  const destination = join(directory, 'destination.bin');
+  await fake.host.mkdir(directory, { recursive: true, mode: 0o700 });
+  assert.equal((await fake.host.stat(join(fake.tmpdir, 'writes'))).mode & 0o777, 0o700);
+  await fake.host.writeFile(source, Buffer.from('original'), { mode: 0o600 });
+  assert.equal((await fake.host.stat(source)).mode & 0o777, 0o600);
+  await fake.host.rename(source, destination);
+  assert.deepEqual(await fake.host.readBytes(source), { notFound: true });
+  assert.deepEqual(await fake.host.readBytes(destination), Buffer.from('original'));
+  await fake.host.chmod(destination, 0o640);
+  assert.equal((await fake.host.stat(destination)).mode & 0o777, 0o640);
+  await assert.doesNotReject(() => fake.host.rm(join(directory, 'already-missing.bin')));
+});
+
+test('fake-host clock is fixed by default and can be overridden', (t) => {
+  const defaultFake = createFakeHost(t);
+  const configuredFake = createFakeHost(t, { now: new Date('2031-04-05T06:07:08.009Z') });
+
+  assert.equal(defaultFake.host.now().toISOString(), '2026-10-26T12:00:00.000Z');
+  assert.equal(configuredFake.host.now().toISOString(), '2031-04-05T06:07:08.009Z');
+});
+
+test('fake-host write failures deny listed paths and descendants without changing disk', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'lemonpi-write-failures-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const exactTarget = join(directory, 'exact.txt');
+  const subtree = join(directory, 'subtree');
+  const childTarget = join(subtree, 'existing.txt');
+  const exactRenameSource = join(directory, 'exact-source.txt');
+  const childRenameSource = join(directory, 'child-source.txt');
+  await mkdir(subtree, { recursive: true });
+  await writeFile(exactTarget, 'keep exact');
+  await writeFile(childTarget, 'keep child');
+  await writeFile(exactRenameSource, 'exact source');
+  await writeFile(childRenameSource, 'child source');
+  const fake = createFakeHost(t, { writeFailures: [exactTarget, subtree] });
+
+  await assert.rejects(fake.host.writeFile(exactTarget, 'overwrite'), { code: 'EACCES' });
+  await assert.rejects(fake.host.writeFile(childTarget, 'overwrite'), { code: 'EACCES' });
+  await assert.rejects(fake.host.rename(exactRenameSource, exactTarget), { code: 'EACCES' });
+  await assert.rejects(fake.host.rename(childRenameSource, join(subtree, 'renamed.txt')), { code: 'EACCES' });
+  await assert.rejects(fake.host.mkdir(exactTarget, { recursive: true }), { code: 'EACCES' });
+  await assert.rejects(fake.host.mkdir(join(subtree, 'new-directory'), { recursive: true }), { code: 'EACCES' });
+
+  assert.equal(await readFile(exactTarget, 'utf8'), 'keep exact');
+  assert.equal(await readFile(childTarget, 'utf8'), 'keep child');
+  assert.equal(await readFile(exactRenameSource, 'utf8'), 'exact source');
+  assert.equal(await readFile(childRenameSource, 'utf8'), 'child source');
+  await assert.rejects(access(join(subtree, 'renamed.txt')), { code: 'ENOENT' });
+  await assert.rejects(access(join(subtree, 'new-directory')), { code: 'ENOENT' });
+});
+
+test('fake-host aborts its signal after the configured successful rename', async (t) => {
+  const fake = createFakeHost(t, { abortAfterRenames: 1 });
+  const source = join(fake.tmpdir, 'before.txt');
+  const destination = join(fake.tmpdir, 'after.txt');
+  await writeFile(source, 'renamed');
+
+  await fake.host.rename(source, destination);
+
+  assert.equal(fake.host.signal.aborted, true);
+  assert.equal(fake.host.signal.reason, 'SIGINT');
+  assert.equal(await readFile(destination, 'utf8'), 'renamed');
 });

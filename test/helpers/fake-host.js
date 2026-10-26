@@ -1,7 +1,18 @@
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { readFile as readFileFromFs, writeFile } from 'node:fs/promises';
+import {
+  chmod as chmodOnFs,
+  lstat as lstatOnFs,
+  mkdir as mkdirOnFs,
+  readFile as readFileFromFs,
+  readlink as readlinkOnFs,
+  realpath as realpathOnFs,
+  rename as renameOnFs,
+  rm as rmOnFs,
+  stat as statOnFs,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { Writable } from 'node:stream';
 
 function captureStream(isTTY) {
@@ -19,6 +30,75 @@ function captureStream(isTTY) {
 
 function parsePiSettings(contents) {
   return JSON.parse(contents.replace(/^\uFEFF/, ''));
+}
+
+async function fileFacts(stat, path) {
+  try {
+    const result = await stat(path);
+    return {
+      isFile: result.isFile(),
+      isDirectory: result.isDirectory(),
+      isSymbolicLink: result.isSymbolicLink(),
+      mode: result.mode,
+    };
+  } catch (error) {
+    if (error.code === 'ENOENT') return { notFound: true };
+    throw error;
+  }
+}
+
+async function realpathIncludingDangling(path) {
+  try {
+    return await realpathOnFs(path);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+
+  const absolutePath = resolve(path);
+  let current = parse(absolutePath).root;
+  let pending = relative(current, absolutePath).split(sep).filter(Boolean);
+  let followedLinks = 0;
+
+  while (pending.length > 0) {
+    const component = pending.shift();
+    const candidate = join(current, component);
+    let result;
+    try {
+      result = await lstatOnFs(candidate);
+    } catch (error) {
+      if (error.code === 'ENOENT') return resolve(candidate, ...pending);
+      throw error;
+    }
+
+    if (!result.isSymbolicLink()) {
+      current = candidate;
+      continue;
+    }
+
+    followedLinks += 1;
+    if (followedLinks > 40) {
+      const error = new Error(`Too many symbolic links while resolving ${path}`);
+      error.code = 'ELOOP';
+      throw error;
+    }
+    const target = await readlinkOnFs(candidate);
+    const targetPath = isAbsolute(target) ? resolve(target) : resolve(dirname(candidate), target);
+    current = parse(targetPath).root;
+    pending = relative(current, targetPath).split(sep).filter(Boolean).concat(pending);
+  }
+
+  return current;
+}
+
+function isUnderPath(path, root) {
+  const remainder = relative(root, path);
+  return remainder === '' || (remainder !== '..' && !remainder.startsWith(`..${sep}`) && !isAbsolute(remainder));
+}
+
+function accessDenied(path) {
+  const error = new Error(`EACCES: permission denied, '${path}'`);
+  error.code = 'EACCES';
+  return error;
 }
 
 function gitIdentity(source) {
@@ -135,6 +215,16 @@ export function createFakeHost(t, overrides = {}) {
   const runnerResults = [...(overrides.runnerResults ?? [])];
   const fakePi = overrides.fakePi ?? {};
   const abortController = new AbortController();
+  const writeFailurePaths = (overrides.writeFailures ?? []).map((path) => resolve(path));
+  const fixedNow = new Date(overrides.now ?? '2026-10-26T12:00:00.000Z');
+  let successfulRenames = 0;
+
+  const checkWriteTarget = (path) => {
+    const target = resolve(path);
+    if (writeFailurePaths.some((blockedPath) => isUnderPath(target, blockedPath))) {
+      throw accessDenied(path);
+    }
+  };
   const stdin = new Proxy(Object.create(null), {
     get() {
       throw new Error('stdin must not be read');
@@ -175,6 +265,36 @@ export function createFakeHost(t, overrides = {}) {
         throw error;
       }
     },
+    readBytes: async (path) => {
+      try {
+        return await readFileFromFs(path);
+      } catch (error) {
+        if (error.code === 'ENOENT') return { notFound: true };
+        throw error;
+      }
+    },
+    lstat: (path) => fileFacts(lstatOnFs, path),
+    stat: (path) => fileFacts(statOnFs, path),
+    realpath: realpathIncludingDangling,
+    mkdir: async (path, options = {}) => {
+      checkWriteTarget(path);
+      return mkdirOnFs(path, options);
+    },
+    writeFile: async (path, bytes, options = {}) => {
+      checkWriteTarget(path);
+      return writeFile(path, bytes, options);
+    },
+    rename: async (from, to) => {
+      checkWriteTarget(to);
+      await renameOnFs(from, to);
+      successfulRenames += 1;
+      if (successfulRenames === overrides.abortAfterRenames) {
+        abortController.abort('SIGINT');
+      }
+    },
+    rm: (path) => rmOnFs(path, { force: true }),
+    chmod: (path, mode) => chmodOnFs(path, mode),
+    now: () => new Date(fixedNow),
     runner: async (command, args = [], options = {}) => {
       runnerCalls.push({ command, args: [...args], options });
       let result;

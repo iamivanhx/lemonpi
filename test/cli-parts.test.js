@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, symlink, writeFile } from 'node:fs/promises';
+import { access, realpath as realpathFromFs, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
@@ -293,6 +293,47 @@ test('parts receive cwd, tmpdir, and readFile for project files', async (t) => {
   assert.equal(await context.readFile(target), 'project file contents');
   assert.deepEqual(await context.readFile(join(fake.cwd, 'missing.txt')), { notFound: true });
   assert.equal(await context.readFile(link), 'project file contents');
+});
+
+test('parts receive the filesystem and clock surface and operate on the fake host', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  let context;
+  const probePart = {
+    name: 'filesystem probe',
+    commands: ['install'],
+    run: async (ctx) => {
+      context = ctx;
+      return [];
+    },
+  };
+
+  const exitCode = await run(['install'], fake.host, { parts: [probePart] });
+
+  const methods = [
+    'readBytes', 'lstat', 'stat', 'realpath', 'mkdir', 'writeFile', 'rename', 'rm', 'chmod', 'now',
+  ];
+  assert.equal(exitCode, 0);
+  assert.deepEqual(methods.filter((name) => typeof context[name] !== 'function'), []);
+
+  const directory = join(fake.tmpdir, 'probe', 'nested');
+  const target = join(directory, 'file.bin');
+  const renamed = join(directory, 'renamed.bin');
+  await context.mkdir(directory, { recursive: true, mode: 0o700 });
+  await context.writeFile(target, Buffer.from([0, 1, 255]), { mode: 0o600 });
+  assert.deepEqual(await context.readBytes(target), Buffer.from([0, 1, 255]));
+  assert.deepEqual(await context.lstat(target), {
+    isFile: true, isDirectory: false, isSymbolicLink: false, mode: 0o100600,
+  });
+  assert.deepEqual(await context.stat(target), {
+    isFile: true, isDirectory: false, isSymbolicLink: false, mode: 0o100600,
+  });
+  assert.equal(await context.realpath(target), await realpathFromFs(target));
+  await context.rename(target, renamed);
+  await context.chmod(renamed, 0o640);
+  assert.equal((await context.stat(renamed)).mode & 0o777, 0o640);
+  await context.rm(join(directory, 'missing.bin'));
+  assert.deepEqual(await context.readBytes(target), { notFound: true });
+  assert.ok(context.now() instanceof Date);
 });
 
 test('status lists every inventory item exactly once with its outcome', async (t) => {
