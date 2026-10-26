@@ -90,7 +90,7 @@ test('missing Pi is a failed prerequisite in the summary without an install sugg
 test('Pi version output must parse and meet the minimum, while supported Node and Pi versions pass', async (t) => {
   for (const stdout of ['garbage', '1.3.9']) {
     const fake = createFakeHost(t, { runnerResults: [{ ...passingPi, stdout }] });
-    const code = await run(['install'], fake.host);
+    const code = await run(['install'], fake.host, { parts: [] });
 
     assert.equal(code, 2);
     assert.match(fake.stdout.text, /Pi: failed/i);
@@ -106,7 +106,7 @@ test('Pi version output must parse and meet the minimum, while supported Node an
     ['1.5.2', '24.14.1'],
   ]) {
     const fake = createFakeHost(t, { nodeVersion, runnerResults: [{ ...passingPi, stdout }] });
-    const code = await run(['install'], fake.host);
+    const code = await run(['install'], fake.host, { parts: [] });
 
     assert.equal(code, 0);
     assert.match(fake.stdout.text, /Pi: ok/);
@@ -131,7 +131,7 @@ test('install --dry-run still checks Pi and refuses when Pi is missing', async (
 test('a passing run calls pi --version exactly once', async (t) => {
   const fake = createFakeHost(t, { runnerResults: [passingPi] });
 
-  await run(['install'], fake.host);
+  await run(['install'], fake.host, { parts: [] });
 
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
 });

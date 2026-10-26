@@ -171,6 +171,31 @@ test('unreadable global settings report a failed settings item and unknown packa
   assert.doesNotMatch(`${fake.stdout.text}${fake.stderr.text}`, new RegExp(secret));
 });
 
+test('reported catalog sources are sanitized against environment secrets', async (t) => {
+  const secret = 'npm:pi-footer';
+  const fake = createFakeHost(t, { env: { PACKAGE_SOURCE_TOKEN: secret } });
+  await fake.writeGlobalSettings({ packages: managedPackages.map(({ source }) => source) });
+
+  const code = await run(['status'], fake.host);
+
+  assert.equal(code, 0);
+  assert.doesNotMatch(fake.stdout.text, new RegExp(secret));
+  assert.ok(fake.stdout.text.includes('footer ([redacted]): ok'));
+});
+
+test('status shows a skipped package as skipped rather than ok', async (t) => {
+  const fake = createFakeHost(t);
+  await fake.writeGlobalSettings({ packages: managedPackages.map(({ source }) => source) });
+
+  const code = await run(['status', '--skip', 'footer'], fake.host);
+
+  assert.equal(code, 0);
+  assert.ok(fake.stdout.text.includes('footer (npm:pi-footer): skipped — held back by --skip'));
+  for (const { id, source } of managedPackages.filter(({ id }) => id !== 'footer')) {
+    assert.ok(fake.stdout.text.includes(`${id} (${source}): ok`), `${id} remains in inventory`);
+  }
+});
+
 test('status only probes Pi version and leaves the settings fixture byte-for-byte unchanged', async (t) => {
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({ packages: managedPackages.map(({ source }) => source) });
@@ -188,8 +213,8 @@ test('status only probes Pi version and leaves the settings fixture byte-for-byt
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
 });
 
-test('install and update produce no package items in this status-only slice', async (t) => {
-  for (const command of ['install', 'update']) {
+test('update remains package-free in the install-only ticket', async (t) => {
+  for (const command of ['update']) {
     const fake = createFakeHost(t);
     await fake.writeGlobalSettings({ packages: [] });
 

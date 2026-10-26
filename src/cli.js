@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import packageJson from '../package.json' with { type: 'json' };
 import { checkPrerequisites } from './prerequisites.js';
 import { renderExceptionsSummary, renderInventorySummary, renderMinimalSummary } from './summary.js';
+import { packageIds } from './packages/catalog.js';
 import { packagesPart } from './packages/part.js';
 
 const BUILT_IN_PARTS = Object.freeze([packagesPart]);
@@ -133,9 +134,16 @@ export async function run(argv, host, options = {}) {
   }
 
   const flags = {
-    skip: parsed.values.skip === undefined ? [] : parsed.values.skip.split(','),
+    skip: parsed.values.skip === undefined ? [] : parsed.values.skip.split(',').map((id) => id.trim()),
     skipSkills: parsed.values['skip-skills'] ?? false,
   };
+  const unknownSkip = flags.skip.find((id) => !packageIds.includes(id));
+  if (unknownSkip !== undefined) {
+    return usageError(
+      host,
+      `unknown package id '${unknownSkip}' for --skip; valid ids: ${packageIds.join(', ')}`,
+    );
+  }
   const dryRun = parsed.values['dry-run'] ?? false;
 
   const prerequisites = host.signal.aborted
