@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
+import { seedOwnedConfigFixture } from './helpers/owned-config-fixture.js';
 import { run } from '../src/cli.js';
 
 const managedPackages = [
@@ -52,6 +53,7 @@ test('status recognizes all eight unpinned declarations and Pi git spellings', a
       source === 'git:github.com/earendil-works/pi-claude-code' ? claudeCodeSource : source
     ));
     await fake.writeGlobalSettings({ packages });
+    await seedOwnedConfigFixture(fake);
 
     const code = await run(['status'], fake.host);
 
@@ -69,8 +71,10 @@ test('status recognizes all eight unpinned declarations and Pi git spellings', a
 
 test('status accepts a UTF-8 BOM in global settings', async (t) => {
   const fake = createFakeHost(t);
-  await writeFile(join(fake.piCodingAgentDir, 'settings.json'),
-    `\uFEFF${JSON.stringify({ packages: managedPackages.map(({ source }) => source) })}`);
+  await fake.writeGlobalSettings({ packages: managedPackages.map(({ source }) => source) });
+  await seedOwnedConfigFixture(fake);
+  const correctSettings = await fake.readGlobalSettings();
+  await writeFile(join(fake.piCodingAgentDir, 'settings.json'), `\uFEFF${JSON.stringify(correctSettings)}`);
 
   const code = await run(['status'], fake.host);
 
@@ -96,6 +100,7 @@ test('status recognizes Pi git-prefixed protocol spellings and trimmed sources',
       source === 'git:github.com/earendil-works/pi-claude-code' ? claudeCodeSource : source
     ));
     await fake.writeGlobalSettings({ packages });
+    await seedOwnedConfigFixture(fake);
 
     const code = await run(['status'], fake.host);
 
@@ -272,6 +277,7 @@ test('reported catalog sources are sanitized against environment secrets', async
   const secret = 'npm:pi-footer';
   const fake = createFakeHost(t, { env: { PACKAGE_SOURCE_TOKEN: secret } });
   await fake.writeGlobalSettings({ packages: managedPackages.map(({ source }) => source) });
+  await seedOwnedConfigFixture(fake);
 
   const code = await run(['status'], fake.host);
 
@@ -283,6 +289,7 @@ test('reported catalog sources are sanitized against environment secrets', async
 test('status shows a skipped package as skipped rather than ok', async (t) => {
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({ packages: managedPackages.map(({ source }) => source) });
+  await seedOwnedConfigFixture(fake);
 
   const code = await run(['status', '--skip', 'footer'], fake.host);
 
@@ -296,6 +303,7 @@ test('status shows a skipped package as skipped rather than ok', async (t) => {
 test('status only probes Pi version and leaves the settings fixture byte-for-byte unchanged', async (t) => {
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({ packages: managedPackages.map(({ source }) => source) });
+  await seedOwnedConfigFixture(fake);
   const settingsPath = join(fake.piCodingAgentDir, 'settings.json');
   const before = await readFile(settingsPath);
 

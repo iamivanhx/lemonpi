@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
+import { seedOwnedConfigFixture } from './helpers/owned-config-fixture.js';
 import { run } from '../src/cli.js';
 
 const primaryMachinePackages = [
@@ -26,6 +27,7 @@ const catalog = [
 test('primary machine status and install reconcile only its three package differences', async (t) => {
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({ packages: primaryMachinePackages });
+  await seedOwnedConfigFixture(fake);
 
   const initialStatusCode = await run(['status'], fake.host);
   const initialStatus = fake.stdout.text;

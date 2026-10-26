@@ -5,8 +5,9 @@ import { checkPrerequisites } from './prerequisites.js';
 import { renderExceptionsSummary, renderInventorySummary, renderMinimalSummary } from './summary.js';
 import { packageIds } from './packages/catalog.js';
 import { packagesPart } from './packages/part.js';
+import { ownedConfigPart } from './owned-config/part.js';
 
-const BUILT_IN_PARTS = Object.freeze([packagesPart]);
+const BUILT_IN_PARTS = Object.freeze([packagesPart, ownedConfigPart]);
 const COMMANDS = new Set(['install', 'update', 'status', 'doctor', 'skills']);
 const COMMAND_FLAGS = {
   install: ['--dry-run', '--skip', '--skip-skills'],
