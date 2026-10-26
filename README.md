@@ -4,7 +4,7 @@
 
 lemonpi configures an existing Pi with Ivan's packages, settings, subagent definitions, extension configs, and private skills. It is configuration-only: it acts on an existing Pi rather than setting up Pi itself.
 
-**Current scope — Area 1:** the CLI shell checks prerequisites, including that a supported Pi is already available, and reports the prerequisite result. The package, owned configuration, private skills, and readiness capabilities are not implemented yet; Areas 2–5 will add them. The later area sections will explain Managed packages, Unmanaged packages, and how Drift, Notice, and Skipped are reported. Area 5 will document Readiness, including Unknown results.
+**Current scope — Areas 1–2:** Area 1 provides the CLI shell and prerequisite checks. Area 2 manages the eight packages in the catalog below through `install`, `update`, and `status`. Owned config, private skills, and Readiness are not implemented yet; Areas 3–5 will add them. This README documents Managed packages, Unmanaged packages, Drift, Notice, and Skipped; Area 5 will document Readiness, including Unknown results.
 
 ## What lemonpi doesn't do
 
@@ -54,7 +54,36 @@ Interrupted runs use 130 for Ctrl-C (SIGINT) and 143 for SIGTERM. These signal e
 
 ## Packages
 
-> **Placeholder — Area 2:** this section will be completed by the Managed packages area.
+### Catalog
+
+A **Managed package** is listed in lemonpi's catalog. Managed packages track the latest release; lemonpi removes pins rather than holding a package to a version.
+
+| ID | Source | Requiredness |
+| --- | --- | --- |
+| `subagents` | `npm:@tintinweb/pi-subagents` | Required |
+| `review` | `git:github.com/earendil-works/pi-review` | Required |
+| `todo` | `npm:@juicesharp/rpiv-todo` | Required |
+| `claude-code` | `git:github.com/earendil-works/pi-claude-code` | Required |
+| `ask-user` | `npm:@juicesharp/rpiv-ask-user-question` | Optional |
+| `web-access` | `npm:pi-web-access` | Optional |
+| `footer` | `npm:pi-footer` | Optional |
+| `pretty` | `npm:@heyhuynhgiabuu/pi-pretty` | Optional |
+
+### What package commands do
+
+- `install` installs missing Managed packages, unpins pinned declarations, and migrates the **Replaced package** `npm:pi-subagents` to `npm:@tintinweb/pi-subagents`. Migration installs the replacement if needed, verifies its declaration, then removes the Replaced package. An already-declared replacement is kept, and other already-present unpinned Managed packages are left alone; lemonpi does not transfer fields from the different-identity Replaced package to its replacement.
+- Object-form package filters and `autoload` are preserved when lemonpi unpins or updates a package. During migration, filters and `autoload` already on the replacement are preserved.
+- `update` does the same reconciliation as `install`, then asks Pi to pull the latest for each eligible package, one package at a time in catalog order. A failed update is reported; lemonpi never tests package releases and never downgrades to an older release.
+- `--skip <id,…>` leaves the named package completely alone for that run. Valid IDs are `subagents`, `review`, `todo`, `claude-code`, `ask-user`, `web-access`, `footer`, and `pretty`. A **Skipped** package is never a failure. An unknown ID is a usage error and exits 2.
+- `status` lists each Managed package once. **Drift** means a package is missing, pinned, duplicated, or has a pending migration; status exits 1 when it finds Drift. **Notices** are listed separately and do not change the exit code. A failed Required package fails the run (exit 2); a failed Optional package makes it partial (exit 1).
+
+### Scope, notices, and removal
+
+lemonpi manages global Pi settings only. A declaration in project settings is reported as a **Notice** and is never managed. An **Unmanaged package** is any other declared package: it is preserved, reported as a Notice, and never installed, updated, unpinned, or removed. A Managed package declared through a different source type is also reported as a Notice, not acted on.
+
+The `claude-code` package is required, but the `claude` CLI and its login are Readiness concerns; lemonpi never installs the `claude` CLI or Claude Code. `web-access` is optional and comes with no provider configuration or credentials.
+
+lemonpi has no package-removal command. To remove a Managed package, run `pi remove <source>` yourself. Migration cleanup of the Replaced package after its replacement is verified is the only automatic removal.
 
 ## Owned config
 
