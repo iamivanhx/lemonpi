@@ -158,7 +158,7 @@ export async function run(argv, host, options = {}) {
   const exitCode = exitCodeFor(items, dryRun);
   const useColor = host.stdout.isTTY === true && host.env.NO_COLOR === undefined;
   const summary = ['install', 'update', 'skills'].includes(command)
-    ? renderExceptionsSummary(command, prerequisites.pi, items, exitCode, useColor)
+    ? renderExceptionsSummary(command, prerequisites.pi, items, exitCode, useColor, dryRun)
     : prerequisites.ok && parts.some((part) => part.commands.includes(command))
       ? renderInventorySummary(command, prerequisites.pi, items, exitCode, useColor)
       : renderMinimalSummary(command, prerequisites.pi, exitCode);

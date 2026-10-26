@@ -295,6 +295,13 @@ test('a required failed action exits 2', async (t) => {
   };
   const optionalFailure = { name: 'optional', kind: 'action', outcome: 'failed', required: false };
   const requiredFailure = { name: 'required', kind: 'action', outcome: 'failed', required: true };
+  const dryRunItems = async (items) => {
+    const host = createFakeHost(t, { runnerResults: [passingPi] });
+    const itemPart = { name: 'dry-run failures', commands: ['install'], run: async () => items };
+    return run(['install', '--dry-run'], host.host, { parts: [itemPart] });
+  };
+  assert.equal(await dryRunItems([requiredFailure]), 0);
+  assert.equal(await dryRunItems([optionalFailure]), 0);
   assert.equal(await runItems('install', [optionalFailure]), 1);
   assert.equal(await runItems('install', [requiredFailure, optionalFailure]), 2);
   assert.equal(await runItems('install', [
@@ -367,4 +374,51 @@ test('install groups action exceptions and counts ok items with readiness last',
   const nonTty = createFakeHost(t, { runnerResults: [passingPi] });
   await run(['install'], nonTty.host, { parts: [colorPart] });
   assert.doesNotMatch(nonTty.stdout.text, /\u001b\[/);
+});
+
+test('install --dry-run labels changed and skipped items as an unchanged preview', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  const part = {
+    name: 'preview',
+    commands: ['install'],
+    run: async () => [
+      { name: 'preview package', kind: 'action', outcome: 'changed' },
+      { name: 'skipped package', kind: 'action', outcome: 'skipped' },
+    ],
+  };
+
+  await run(['install', '--dry-run'], fake.host, { parts: [part] });
+
+  assert.match(fake.stdout.text, /lemonpi install — Pi 1\.4\.0 — dry run \(nothing was changed\)/);
+  assert.match(fake.stdout.text, /Would change:\n  - preview package/);
+  assert.match(fake.stdout.text, /Would skip:\n  - skipped package/);
+
+  const normal = createFakeHost(t, { runnerResults: [passingPi] });
+  const normalCode = await run(['install'], normal.host, { parts: [part] });
+
+  assert.equal(normalCode, 0);
+  assert.match(normal.stdout.text, /Changed:/);
+  assert.match(normal.stdout.text, /Skipped:/);
+  assert.doesNotMatch(normal.stdout.text, /Would change|Would skip|dry run/);
+});
+
+test('update and skills --dry-run use the exceptions preview summary', async (t) => {
+  const part = {
+    name: 'preview',
+    commands: ['update', 'skills'],
+    run: async () => [
+      { name: 'preview package', kind: 'action', outcome: 'changed' },
+      { name: 'skipped package', kind: 'action', outcome: 'skipped' },
+    ],
+  };
+
+  for (const command of ['update', 'skills']) {
+    const fake = createFakeHost(t, { runnerResults: [passingPi] });
+    const code = await run([command, '--dry-run'], fake.host, { parts: [part] });
+
+    assert.equal(code, 0, `${command} preview exits successfully`);
+    assert.match(fake.stdout.text, new RegExp(`lemonpi ${command} — Pi 1\\.4\\.0 — dry run \\(nothing was changed\\)`));
+    assert.match(fake.stdout.text, /Would change:/);
+    assert.match(fake.stdout.text, /Would skip:/);
+  }
 });

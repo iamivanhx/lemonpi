@@ -32,18 +32,25 @@ function renderResult(exitCode) {
   return 'Result: failed — exit 2 means a prerequisite or required item failed.';
 }
 
-export function renderExceptionsSummary(command, piPrerequisite, items, exitCode, useColor = false) {
+export function renderExceptionsSummary(command, piPrerequisite, items, exitCode, useColor = false, dryRun = false) {
   const version = piPrerequisite.version ?? 'unknown';
   const piLine = piPrerequisite.ok
     ? `  Pi: ok (${piPrerequisite.version})`
     : `  Pi: failed — ${piPrerequisite.reason}`;
   const lines = [
-    styled(`lemonpi ${command} — Pi ${version}`, '\u001b[1;36m', useColor),
+    styled(`lemonpi ${command} — Pi ${version}${dryRun ? ' — dry run (nothing was changed)' : ''}`, '\u001b[1;36m', useColor),
     'Prerequisites:',
     piLine,
   ];
 
-  for (const [outcome, title, color] of ACTION_GROUPS) {
+  const actionGroups = dryRun
+    ? ACTION_GROUPS.map(([outcome, title, color]) => [
+      outcome,
+      outcome === 'changed' ? 'Would change' : outcome === 'skipped' ? 'Would skip' : title,
+      color,
+    ])
+    : ACTION_GROUPS;
+  for (const [outcome, title, color] of actionGroups) {
     renderGroup(
       lines,
       title,
