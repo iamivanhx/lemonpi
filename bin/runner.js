@@ -5,7 +5,11 @@ const TERMINATION_GRACE_MS = 250;
 function errorResult(error, stdout = '', stderr = '') {
   const result = { code: null, signal: null, stdout, stderr };
   if (error?.code === 'ENOENT') result.notFound = true;
-  else if (error) result.error = error.message;
+  else if (error) {
+    const name = error.name ?? 'Error';
+    const code = error.code ? ` (${error.code})` : '';
+    result.error = `${name}${code}: ${error.message ?? 'subprocess failed'}`;
+  }
   return result;
 }
 

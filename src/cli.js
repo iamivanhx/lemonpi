@@ -169,7 +169,18 @@ export async function run(argv, host, options = {}) {
     for (const part of parts) {
       if (host.signal.aborted) break;
       if (part.commands.includes(command)) {
-        items.push(...await part.run(context));
+        try {
+          items.push(...await part.run(context));
+        } catch {
+          const action = ['install', 'update', 'skills'].includes(command);
+          items.push({
+            name: part.name,
+            kind: action ? 'action' : 'inventory',
+            outcome: 'failed',
+            reason: 'part failed unexpectedly',
+            ...(action ? { required: true } : {}),
+          });
+        }
       }
     }
   }

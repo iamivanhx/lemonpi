@@ -1,8 +1,40 @@
 const PLATFORM_REFUSAL = 'Windows is not supported; lemonpi runs on macOS and Debian/Linux';
 const REQUIRED_NODE_VERSION = '22.19.0';
 const REQUIRED_PI_VERSION = '1.4.0';
-const SEMVER_PATTERN = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z.-]+))?$/;
-const PI_VERSION_PATTERN = /^(?:\S+\s+)?(v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z.-]+)?)$/;
+const DIAGNOSTIC_WITHHELD = '[diagnostic withheld]';
+const SEMVER_PATTERN = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+const PI_VERSION_PATTERN = /^(?:\S+\s+)?(v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/;
+
+function sanitizeDiagnostic(value, env = {}) {
+  const secrets = Object.entries(env)
+    .filter(([key, secret]) => /credential|token|password|secret|api.?key|auth/i.test(key) && typeof secret === 'string' && secret.length > 0)
+    .map(([, secret]) => secret)
+    .sort((left, right) => right.length - left.length);
+
+  return String(value).split(/\r?\n/).map((originalLine) => {
+    if (/\bprivate key\b|-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/i.test(originalLine)) {
+      return DIAGNOSTIC_WITHHELD;
+    }
+
+    let line = originalLine;
+    for (const secret of secrets) line = line.split(secret).join('[redacted]');
+    line = line
+      .replace(/(https?:\/\/)[^/@\s]+@/gi, '$1[redacted]@')
+      .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted email]')
+      .replace(/\borg[-_][A-Za-z0-9_-]+/gi, '[redacted org ID]')
+      .replace(/\borganization(?:[_\s-]*id)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi, 'organization ID=[redacted]')
+      .replace(/\bauthorization\s*:\s*[^\r\n]*/gi, 'Authorization: [redacted]')
+      .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
+      .replace(/(["']?(?:[A-Za-z0-9.-]*(?:credential|token|password|secret|api[\s_-]?key|auth(?:orization)?)[A-Za-z0-9.-]*)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1[redacted]')
+      .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}|sk[-_](?:live[-_])?[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{12,})\b/g, '[redacted token]')
+      .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, '[redacted token]');
+
+    if (/\b(?:credential|token|password|secret|api[\s_-]?key|auth(?:orization)?)\b(?!\s*[:=])\s+\S+/i.test(line)) {
+      return DIAGNOSTIC_WITHHELD;
+    }
+    return line;
+  }).join('\n');
+}
 
 function parseVersion(value, pattern = SEMVER_PATTERN) {
   const match = pattern.exec(String(value).trim());
@@ -71,20 +103,24 @@ export async function checkPrerequisites(host) {
 
   const result = await host.runner('pi', ['--version'], { signal: host.signal });
   if (result.notFound) {
-    return failedPi('Pi not found on PATH; lemonpi configures an existing Pi and never installs it');
+    return failedPi('Pi not found on PATH; lemonpi configures an existing Pi and never installs it; command: pi --version');
   }
 
   if (result.code !== 0) {
-    const output = result.stderr?.trim() || result.stdout?.trim();
-    const detail = output ? `: ${output}` : '';
+    const diagnostics = [
+      ['stdout', result.stdout],
+      ['stderr', result.stderr],
+      ['error', result.error],
+    ].filter(([, value]) => typeof value === 'string' && value.trim())
+      .map(([label, value]) => `${label}: ${sanitizeDiagnostic(value.trim(), host.env)}`);
+    const detail = diagnostics.length ? `: ${diagnostics.join('\n')}` : '';
     return failedPi(`pi --version failed with exit ${result.code}${detail}`);
   }
 
   const rawVersion = result.stdout?.trim() ?? '';
   const piVersion = parseVersion(rawVersion, PI_VERSION_PATTERN);
   if (!piVersion) {
-    const foundVersion = rawVersion || 'no version output';
-    return failedPi(`Pi version output is unparseable: ${foundVersion}`);
+    return failedPi('pi --version output is unparseable (raw output withheld)');
   }
 
   const requiredPiVersion = parseVersion(REQUIRED_PI_VERSION);

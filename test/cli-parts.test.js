@@ -555,6 +555,121 @@ test('install --dry-run labels changed and skipped items as an unchanged preview
   assert.doesNotMatch(normal.stdout.text, /Would change|Would skip|dry run/);
 });
 
+test('a rejecting action part becomes a named safe required failure', async (t) => {
+  for (const command of ['install', 'update', 'skills']) {
+    const fake = createFakeHost(t, { runnerResults: [passingPi] });
+    const rawFailure = 'alice@example.test org_12345 token=fixture-private-token';
+    const part = {
+      name: `broken ${command}`,
+      commands: [command],
+      run: async () => { throw new Error(rawFailure); },
+    };
+
+    const code = await run([command], fake.host, { parts: [part] }).catch(() => undefined);
+
+    assert.equal(code, 2);
+    assert.match(fake.stdout.text, /Failed:/);
+    assert.match(fake.stdout.text, new RegExp(`broken ${command}: part failed unexpectedly`));
+    assert.doesNotMatch(fake.stdout.text, /alice@example\.test|org_12345|fixture-private-token/);
+  }
+});
+
+test('a rejecting part retains prior items and lets later matching parts run', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  const runOrder = [];
+  const parts = [
+    {
+      name: 'completed earlier',
+      commands: ['install'],
+      run: async () => { runOrder.push('earlier'); return [{ name: 'prior package', kind: 'action', outcome: 'changed' }]; },
+    },
+    {
+      name: 'rejecting package part',
+      commands: ['install'],
+      run: async () => { runOrder.push('rejecting'); throw new Error('dummy exception detail must stay hidden'); },
+    },
+    {
+      name: 'completed later',
+      commands: ['install'],
+      run: async () => { runOrder.push('later'); return [{ name: 'later package', kind: 'action', outcome: 'changed' }]; },
+    },
+  ];
+
+  const code = await run(['install'], fake.host, { parts }).catch(() => undefined);
+
+  assert.equal(code, 2);
+  assert.match(fake.stdout.text, /prior package/);
+  assert.match(fake.stdout.text, /rejecting package part: part failed unexpectedly/);
+  assert.match(fake.stdout.text, /later package/);
+  assert.deepEqual(runOrder, ['earlier', 'rejecting', 'later']);
+  assert.doesNotMatch(fake.stdout.text, /dummy exception detail/);
+});
+
+test('a rejecting status or doctor part appears as failed inventory', async (t) => {
+  for (const command of ['status', 'doctor']) {
+    const fake = createFakeHost(t, { runnerResults: [passingPi] });
+    const part = {
+      name: 'read-only check',
+      commands: [command],
+      run: async () => { throw new Error('untrusted exception detail'); },
+    };
+
+    const code = await run([command], fake.host, { parts: [part] }).catch(() => undefined);
+
+    assert.equal(code, 2);
+    assert.match(fake.stdout.text, /Inventory:/);
+    assert.match(fake.stdout.text, /read-only check: failed — part failed unexpectedly/);
+    assert.doesNotMatch(fake.stdout.text, /Failed:/);
+    assert.doesNotMatch(fake.stdout.text, /untrusted exception detail/);
+  }
+});
+
+test('a rejecting action in dry-run keeps the dry-run zero exit mapping', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  const part = {
+    name: 'preview failure',
+    commands: ['install'],
+    run: async () => { throw new Error('private detail'); },
+  };
+
+  const code = await run(['install', '--dry-run'], fake.host, { parts: [part] }).catch(() => undefined);
+
+  assert.equal(code, 0);
+  assert.match(fake.stdout.text, /preview failure: part failed unexpectedly/);
+  assert.match(fake.stdout.text, /Result: ok.*exit 0/);
+  assert.doesNotMatch(fake.stdout.text, /private detail/);
+});
+
+test('an aborting part rejection keeps interruption exit-code precedence', async (t) => {
+  for (const [signal, expectedCode] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+    const fake = createFakeHost(t, { runnerResults: [passingPi] });
+    let laterPartCalls = 0;
+    const parts = [
+      {
+        name: 'aborting part',
+        commands: ['install'],
+        run: async () => {
+          fake.abortController.abort(signal);
+          throw new Error('abort rejection detail must not leak');
+        },
+      },
+      {
+        name: 'later part',
+        commands: ['install'],
+        run: async () => { laterPartCalls += 1; return []; },
+      },
+    ];
+
+    const code = await run(['install'], fake.host, { parts }).catch(() => undefined);
+
+    assert.equal(code, expectedCode);
+    assert.equal(laterPartCalls, 0);
+    assert.match(fake.stdout.text, /aborting part: part failed unexpectedly/);
+    assert.match(fake.stdout.text, new RegExp(`Result: interrupted — exit ${expectedCode}`));
+    assert.doesNotMatch(fake.stdout.text, /abort rejection detail/);
+  }
+});
+
 test('update and skills --dry-run use the exceptions preview summary', async (t) => {
   const part = {
     name: 'preview',

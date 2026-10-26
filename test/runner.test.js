@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { realpath } from 'node:fs/promises';
+import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runner } from '../bin/runner.js';
 
 test('runner captures child stdout and stderr and reports its exit code', async () => {
@@ -49,6 +50,21 @@ test('runner terminates a child when its abort signal fires', { timeout: 3000 },
 
   assert.equal(result.code, null);
   assert.equal(result.signal, 'SIGTERM');
+});
+
+test('runner retains the error name and code for a non-executable command', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'lemonpi-runner-'));
+  const executable = join(directory, 'not-executable');
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(executable, 'non-executable fixture');
+  await chmod(executable, 0o600);
+
+  const result = await runner(executable, []);
+
+  assert.equal(result.code, null);
+  assert.match(result.error, /Error/);
+  assert.match(result.error, /EACCES/);
+  assert.equal(result.notFound, undefined);
 });
 
 test('runner starts a child in the requested working directory', async () => {
