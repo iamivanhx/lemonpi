@@ -16,6 +16,14 @@ _Avoid_: unknown package, foreign package
 A package that a managed package supersedes (today `npm:pi-subagents`, superseded by tintinweb subagents), which lemonpi removes only after the replacement is declared.
 _Avoid_: legacy package, old package
 
+**Drift**:
+A difference between the machine and lemonpi's declared setup that running `install` would change or fail on (a managed package missing, pinned, duplicated, or stuck mid-migration; an owned setting or shipped file differing from what lemonpi ships).
+_Avoid_: mismatch, divergence
+
+**Notice**:
+A reported condition lemonpi never acts on (an unmanaged package, a project-scope declaration of a managed package, a managed package declared from a different source type); it never changes the exit code.
+_Avoid_: info, warning
+
 **Readiness**:
 Whether a component lemonpi configures can actually be used on this machine, judged from local facts only, without changing anything, refreshing credentials, or contacting the network.
 _Avoid_: health, availability
