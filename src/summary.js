@@ -75,6 +75,52 @@ export function renderExceptionsSummary(command, piPrerequisite, items, exitCode
   return `${lines.join('\n')}\n`;
 }
 
+export function renderInventorySummary(command, piPrerequisite, items, exitCode, useColor = false) {
+  const version = piPrerequisite.version ?? 'unknown';
+  const piLine = piPrerequisite.ok
+    ? `  Pi: ok (${piPrerequisite.version})`
+    : `  Pi: failed — ${piPrerequisite.reason}`;
+  const lines = [
+    styled(`lemonpi ${command} — Pi ${version}`, '\u001b[1;36m', useColor),
+    'Prerequisites:',
+    piLine,
+  ];
+
+  renderGroup(
+    lines,
+    'Inventory',
+    '\u001b[1;36m',
+    items.filter((item) => item.kind === 'inventory'),
+    useColor,
+    (item) => item.outcome,
+  );
+  renderGroup(
+    lines,
+    'Notices',
+    '\u001b[36m',
+    items.filter((item) => item.kind === 'notice'),
+    useColor,
+  );
+  if (command === 'doctor') {
+    renderGroup(
+      lines,
+      'Readiness',
+      '\u001b[1;35m',
+      items.filter((item) => item.kind === 'readiness'),
+      useColor,
+      (item) => item.outcome.charAt(0).toUpperCase() + item.outcome.slice(1),
+    );
+  }
+
+  const resultLine = exitCode === 0
+    ? 'Result: ok — exit 0 means the run completed successfully.'
+    : exitCode === 1
+      ? 'Result: partial — exit 1 means the inventory has drift.'
+      : 'Result: failed — exit 2 means a prerequisite or inventory item failed.';
+  lines.push(resultLine);
+  return `${lines.join('\n')}\n`;
+}
+
 export function renderMinimalSummary(command, piPrerequisite, exitCode) {
   const version = piPrerequisite.version ?? 'unknown';
   const piLine = piPrerequisite.ok

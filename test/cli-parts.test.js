@@ -109,6 +109,173 @@ test('parts receive parsed context and the injected agent directory', async (t) 
   ]);
 });
 
+test('status lists every inventory item exactly once with its outcome', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  const items = [
+    { name: 'managed package', kind: 'inventory', outcome: 'ok' },
+    { name: 'owned setting', kind: 'inventory', outcome: 'drift' },
+    { name: 'shipped file', kind: 'inventory', outcome: 'unknown' },
+  ];
+  const part = { name: 'inventory', commands: ['status'], run: async () => items };
+
+  const code = await run(['status'], fake.host, { parts: [part] });
+
+  assert.equal(code, 1);
+  assert.ok(fake.stdout.text.startsWith('lemonpi status — Pi 1.4.0\n'));
+  assert.equal(
+    fake.stdout.text.trimEnd().split('\n').at(-1),
+    'Result: partial — exit 1 means the inventory has drift.',
+  );
+  for (const { name, outcome } of items) {
+    assert.equal(fake.stdout.text.split(name).length - 1, 1, `${name} should appear once`);
+    assert.ok(fake.stdout.text.includes(`${name}: ${outcome}`), `${name} should show ${outcome}`);
+  }
+});
+
+test('status shows the reason for a drifted inventory item', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  const part = {
+    name: 'inventory',
+    commands: ['status'],
+    run: async () => [{
+      name: 'managed package',
+      kind: 'inventory',
+      outcome: 'drift',
+      reason: '`install` restores it',
+    }],
+  };
+
+  await run(['status'], fake.host, { parts: [part] });
+
+  assert.ok(fake.stdout.text.includes('managed package: drift — `install` restores it'));
+});
+
+test('status lists notices in their own section after inventory', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  const part = {
+    name: 'inventory',
+    commands: ['status'],
+    run: async () => [
+      { name: 'managed package', kind: 'inventory', outcome: 'ok' },
+      { name: 'unmanaged package', kind: 'notice', reason: 'preserved' },
+    ],
+  };
+
+  await run(['status'], fake.host, { parts: [part] });
+
+  const output = fake.stdout.text;
+  assert.ok(output.includes('Notices:'));
+  assert.ok(output.indexOf('Inventory:') < output.indexOf('Notices:'));
+  assert.ok(output.indexOf('unmanaged package: preserved') > output.indexOf('Notices:'));
+  assert.ok(output.indexOf('unmanaged package: preserved') < output.indexOf('Result:'));
+  assert.equal(output.split('unmanaged package').length - 1, 1);
+});
+
+test('doctor includes readiness while status hides the same readiness item', async (t) => {
+  const part = {
+    name: 'inventory and readiness',
+    commands: ['status', 'doctor'],
+    run: async () => [
+      { name: 'owned setting', kind: 'inventory', outcome: 'ok' },
+      { name: 'unmanaged package', kind: 'notice', reason: 'preserved' },
+      { name: 'runtime check', kind: 'readiness', outcome: 'warning', reason: 'restart required' },
+    ],
+  };
+  const status = createFakeHost(t, { runnerResults: [passingPi] });
+  const doctor = createFakeHost(t, { runnerResults: [passingPi] });
+
+  await run(['status'], status.host, { parts: [part] });
+  await run(['doctor'], doctor.host, { parts: [part] });
+
+  assert.ok(status.stdout.text.startsWith('lemonpi status — Pi 1.4.0\n'));
+  assert.ok(doctor.stdout.text.startsWith('lemonpi doctor — Pi 1.4.0\n'));
+  assert.doesNotMatch(status.stdout.text, /Readiness:|runtime check/);
+  assert.ok(doctor.stdout.text.includes('Readiness:'));
+  assert.ok(doctor.stdout.text.includes('runtime check: Warning — restart required'));
+  assert.ok(doctor.stdout.text.indexOf('Notices:') < doctor.stdout.text.indexOf('Readiness:'));
+  assert.ok(doctor.stdout.text.indexOf('Readiness:') < doctor.stdout.text.indexOf('Result:'));
+});
+
+test('status and doctor exit codes follow inventory outcomes', async (t) => {
+  const runWithItems = async (command, items) => {
+    const fake = createFakeHost(t, { runnerResults: [passingPi] });
+    const part = { name: 'outcomes', commands: [command], run: async () => items };
+    const code = await run([command], fake.host, { parts: [part] });
+    return { code, output: fake.stdout.text };
+  };
+
+  const allOk = await runWithItems('status', [
+    { name: 'managed package', kind: 'inventory', outcome: 'ok' },
+  ]);
+  assert.equal(allOk.code, 0);
+  assert.equal(
+    allOk.output.trimEnd().split('\n').at(-1),
+    'Result: ok — exit 0 means the run completed successfully.',
+  );
+  assert.equal((await runWithItems('status', [
+    { name: 'managed package', kind: 'inventory', outcome: 'drift' },
+  ])).code, 1);
+  const failed = await runWithItems('status', [
+    { name: 'managed package', kind: 'inventory', outcome: 'failed' },
+    { name: 'owned setting', kind: 'inventory', outcome: 'drift' },
+  ]);
+  assert.equal(failed.code, 2);
+  assert.equal(
+    failed.output.trimEnd().split('\n').at(-1),
+    'Result: failed — exit 2 means a prerequisite or inventory item failed.',
+  );
+  assert.equal((await runWithItems('doctor', [
+    { name: 'unverified check', kind: 'inventory', outcome: 'unknown' },
+    { name: 'deferred check', kind: 'inventory', outcome: 'skipped' },
+    { name: 'unmanaged package', kind: 'notice', reason: 'preserved' },
+    { name: 'runtime check', kind: 'readiness', outcome: 'warning', reason: 'restart required' },
+  ])).code, 0);
+});
+
+test('inventory color follows TTY and NO_COLOR rules', async (t) => {
+  const part = {
+    name: 'inventory',
+    commands: ['status'],
+    run: async () => [{ name: 'managed package', kind: 'inventory', outcome: 'drift' }],
+  };
+  const nonTty = createFakeHost(t, { runnerResults: [passingPi] });
+  const tty = createFakeHost(t, { stdoutTTY: true, runnerResults: [passingPi] });
+  delete tty.host.env.NO_COLOR;
+  const noColor = createFakeHost(t, {
+    stdoutTTY: true,
+    env: { NO_COLOR: '' },
+    runnerResults: [passingPi],
+  });
+
+  await run(['status'], nonTty.host, { parts: [part] });
+  await run(['status'], tty.host, { parts: [part] });
+  await run(['status'], noColor.host, { parts: [part] });
+
+  assert.doesNotMatch(nonTty.stdout.text, /\u001b\[/);
+  assert.match(tty.stdout.text, /\u001b\[/);
+  assert.doesNotMatch(noColor.stdout.text, /\u001b\[/);
+});
+
+test('status and doctor without parts retain the Pi-only summary', async (t) => {
+  const status = createFakeHost(t, { runnerResults: [passingPi] });
+  const doctor = createFakeHost(t, { runnerResults: [passingPi] });
+  const missingPi = createFakeHost(t, {
+    runnerResults: [{ notFound: true, code: null, signal: null, stdout: '', stderr: '' }],
+  });
+
+  await run(['status'], status.host);
+  await run(['doctor'], doctor.host);
+  const missingPiCode = await run(['status'], missingPi.host);
+
+  for (const output of [status.stdout.text, doctor.stdout.text]) {
+    assert.match(output, /Pi: ok \(1\.4\.0\)/);
+    assert.doesNotMatch(output, /Inventory:|Notices:|Readiness:/);
+  }
+  assert.equal(missingPiCode, 2);
+  assert.match(missingPi.stdout.text, /Pi: failed/);
+  assert.doesNotMatch(missingPi.stdout.text, /Inventory:|Notices:|Readiness:/);
+});
+
 test('a required failed action exits 2', async (t) => {
   const fake = createFakeHost(t, { runnerResults: [passingPi] });
   const part = {
