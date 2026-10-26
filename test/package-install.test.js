@@ -119,6 +119,76 @@ test('install stops before package calls when global settings cannot be read', a
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
 });
 
+test('install stops after an optional install or unpin leaves settings unreadable', async (t) => {
+  const optionalSource = catalogSources[4];
+  for (const [label, optionalDeclaration] of [
+    ['install', null],
+    ['unpin', `${optionalSource}@1.2.3`],
+  ]) {
+    const fake = createFakeHost(t);
+    const packages = [
+      ...catalogSources.slice(0, 4),
+      ...(optionalDeclaration ? [optionalDeclaration] : []),
+    ];
+    await fake.writeGlobalSettings({ packages });
+    const runner = fake.host.runner;
+    fake.host.runner = async (command, args, options) => {
+      const result = await runner(command, args, options);
+      if (command === 'pi' && args[0] === 'install' && args[1] === optionalSource) {
+        await writeFile(join(fake.piCodingAgentDir, 'settings.json'), '[]');
+      }
+      return result;
+    };
+
+    const code = await run(['install'], fake.host);
+
+    assert.equal(code, 2, `${label}: unreadable settings are a required failure`);
+    assert.match(fake.stdout.text, /Pi settings: can't parse/);
+    assert.match(fake.stdout.text, /OK: 4 items/);
+    assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args), [[
+      'install', optionalSource, '--no-approve',
+    ]]);
+  }
+});
+
+test('install preserves failed optional diagnostics when settings become unreadable', async (t) => {
+  const secret = 'optional-install-read-secret';
+  const optionalSource = catalogSources[4];
+  const fake = createFakeHost(t, {
+    env: { LEMON_ACCESS_TOKEN: secret },
+    fakePi: {
+      failures: [{
+        subcommand: 'install',
+        source: optionalSource,
+        code: 17,
+        stdout: 'optional install failed stdout',
+        stderr: `Pi upgrade hint ${secret}`,
+      }],
+    },
+  });
+  await fake.writeGlobalSettings({ packages: catalogSources.slice(0, 4) });
+  const runner = fake.host.runner;
+  fake.host.runner = async (command, args, options) => {
+    const result = await runner(command, args, options);
+    if (command === 'pi' && args[0] === 'install' && args[1] === optionalSource) {
+      await writeFile(join(fake.piCodingAgentDir, 'settings.json'), '[]');
+    }
+    return result;
+  };
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 2);
+  assert.match(fake.stdout.text, /Pi settings: can't parse/);
+  assert.ok(fake.stdout.text.includes(`pi install ${optionalSource} --no-approve`));
+  assert.ok(fake.stdout.text.includes('optional install failed stdout'));
+  assert.ok(fake.stdout.text.includes('Pi upgrade hint [redacted]'));
+  assert.doesNotMatch(fake.stdout.text, new RegExp(secret));
+  assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args), [[
+    'install', optionalSource, '--no-approve',
+  ]]);
+});
+
 test('install reports spawn errors and sanitizes bare environment secrets', async (t) => {
   const secret = 'runner-error-secret-value';
   const fake = createFakeHost(t, {

@@ -35,6 +35,37 @@ test('fake Pi replaces an equivalent Git declaration while preserving object set
   }]);
 });
 
+test('fake Pi treats an unprefixed GitHub-looking path as local and appends Git packages', async (t) => {
+  const fake = createFakeHost(t);
+  const local = 'github.com/earendil-works/pi-review';
+  const canonical = 'git:github.com/earendil-works/pi-review';
+  await fake.writeGlobalSettings({ packages: [local] });
+
+  await fake.host.runner('pi', ['install', canonical, '--no-approve']);
+
+  assert.deepEqual(await fake.readGlobalSettings(), { packages: [local, canonical] });
+});
+
+test('fake Pi independently matches prefixed HTTPS and SSH sources after trimming', async (t) => {
+  const canonical = 'git:github.com/example/tool';
+  for (const declaration of [
+    'git:https://github.com/example/tool.git',
+    ' git:  ssh://git@github.com:8443/example/tool.git ',
+    'git:http://github.com/example/tool',
+    'git:git://github.com/example/tool.git',
+  ]) {
+    const fake = createFakeHost(t);
+    const existing = { source: declaration, extensions: ['extensions/*.ts'], autoload: false };
+    await fake.writeGlobalSettings({ packages: [existing] });
+
+    await fake.host.runner('pi', ['install', canonical, '--no-approve']);
+
+    assert.deepEqual(await fake.readGlobalSettings(), {
+      packages: [{ ...existing, source: canonical }],
+    });
+  }
+});
+
 test('fake Pi matches npm declarations without their pinned versions', async (t) => {
   const fake = createFakeHost(t);
   const settingsPath = join(fake.piCodingAgentDir, 'settings.json');

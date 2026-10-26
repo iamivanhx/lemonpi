@@ -98,15 +98,22 @@ test('install dry-run previews unpinning without Pi package calls or fixture cha
   assert.equal(code, 0);
 });
 
-test('a successful Pi install that leaves a pin is failed with catalog severity', async (t) => {
+test('a successful Pi install that leaves a pin reports sanitized command diagnostics at catalog severity', async (t) => {
+  const secret = 'pi-unpin-success-output-secret';
   for (const [id, index, pinnedSource, expectedCode] of [
     ['pretty', 7, 'npm:@heyhuynhgiabuu/pi-pretty@0.6.29', 1],
     ['review', 1, 'git:github.com/earendil-works/pi-review@v1', 2],
   ]) {
     const fake = createFakeHost(t, {
+      env: { LEMON_ACCESS_TOKEN: secret },
       runnerResults: [
         { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' },
-        { code: 0, signal: null, stdout: 'Installed canonical source\n', stderr: '' },
+        {
+          code: 0,
+          signal: null,
+          stdout: 'Pi claimed the pinned package was installed',
+          stderr: `Upgrade Pi before trying again: ${secret}`,
+        },
       ],
     });
     const packages = [...managedSources];
@@ -116,6 +123,10 @@ test('a successful Pi install that leaves a pin is failed with catalog severity'
     const code = await run(['install'], fake.host);
 
     assert.ok(fake.stdout.text.includes(`${id} (${managedSources[index]}): still pinned after pi install`));
+    assert.ok(fake.stdout.text.includes(`pi install ${managedSources[index]} --no-approve`));
+    assert.ok(fake.stdout.text.includes('Pi claimed the pinned package was installed'));
+    assert.ok(fake.stdout.text.includes('Upgrade Pi before trying again: [redacted]'));
+    assert.doesNotMatch(fake.stdout.text, new RegExp(secret));
     assert.deepEqual((await fake.readGlobalSettings()).packages, packages);
     assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args), [[
       'install', managedSources[index], '--no-approve',

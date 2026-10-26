@@ -4,23 +4,25 @@ const SCP_GIT = /^git@([^/:?#\s]+):(.+)$/i;
 const GIT_SHORTHAND = /^([^/:?#\s]+)\/(.+)$/;
 
 function parseGitSource(source) {
+  const trimmed = source.trim();
+  const hasGitPrefix = trimmed.startsWith('git:');
+  const value = hasGitPrefix ? trimmed.slice('git:'.length).trim() : trimmed;
+  if (!hasGitPrefix && !/^(?:https?|ssh|git):\/\//i.test(value)) return null;
+
   let host;
   let path;
-
-  if (/^https:\/\//i.test(source) || /^ssh:\/\/git@/i.test(source)) {
+  if (/^(?:https?|ssh|git):\/\//i.test(value)) {
     let url;
     try {
-      url = new URL(source);
+      url = new URL(value);
     } catch {
       return null;
     }
     if (url.search || url.hash || !url.hostname) return null;
-    if (url.protocol === 'ssh:' && url.username !== 'git') return null;
-    host = url.host.toLowerCase();
+    host = url.hostname.toLowerCase();
     path = url.pathname.replace(/^\/+/, '');
   } else {
-    if (!source.startsWith('git:')) return null;
-    const value = source.slice('git:'.length);
+    if (!hasGitPrefix) return null;
     const scp = SCP_GIT.exec(value);
     if (scp) {
       [, host, path] = scp;

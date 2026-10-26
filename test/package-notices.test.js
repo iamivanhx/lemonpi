@@ -83,6 +83,27 @@ test('install renders notices after the ok count without acting on unmanaged pac
   assert.deepEqual((await fake.readGlobalSettings()).packages, packages);
 });
 
+test('install retains a local GitHub-looking declaration and appends the missing managed package', async (t) => {
+  const fake = createFakeHost(t);
+  const local = 'github.com/earendil-works/pi-review';
+  const packages = [managedSources[0], local, ...managedSources.slice(2)];
+  await fake.writeGlobalSettings({ packages });
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0);
+  assert.ok(fake.stdout.text.includes(`- ${local}: unmanaged package`));
+  assert.ok(fake.stdout.text.includes('review (git:github.com/earendil-works/pi-review): installed'));
+  assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [
+    ['pi', ['--version']],
+    ['pi', ['install', managedSources[1], '--no-approve']],
+  ]);
+  assert.deepEqual((await fake.readGlobalSettings()).packages, [
+    ...packages,
+    managedSources[1],
+  ]);
+});
+
 test('dry-run reports required and optional duplicates as failed without package calls', async (t) => {
   for (const [id, source, duplicate] of [
     ['footer', 'npm:pi-footer', 'npm:pi-footer@1.0.0'],

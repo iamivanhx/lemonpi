@@ -67,6 +67,34 @@ test('status recognizes all eight unpinned declarations and Pi git spellings', a
   }
 });
 
+test('status recognizes Pi git-prefixed protocol spellings and trimmed sources', async (t) => {
+  const claudeCodeSpellings = [
+    'git:https://github.com/earendil-works/pi-claude-code',
+    '  git:  https://github.com:8443/earendil-works/pi-claude-code.git  ',
+    'git: ssh://git@github.com/earendil-works/pi-claude-code.git ',
+    'git:http://github.com/earendil-works/pi-claude-code',
+    'git:git://github.com/earendil-works/pi-claude-code.git',
+  ];
+
+  for (const claudeCodeSource of claudeCodeSpellings) {
+    const fake = createFakeHost(t);
+    const packages = managedPackages.map(({ source }) => (
+      source === 'git:github.com/earendil-works/pi-claude-code' ? claudeCodeSource : source
+    ));
+    await fake.writeGlobalSettings({ packages });
+
+    const code = await run(['status'], fake.host);
+
+    assert.equal(code, 0, `${claudeCodeSource} is the managed git identity`);
+    for (const { id, source } of managedPackages) {
+      const item = `${id} (${source}): ok`;
+      assert.ok(fake.stdout.text.includes(item), `${id} is declared`);
+      assert.equal(fake.stdout.text.split(item).length - 1, 1, `${id} appears once`);
+    }
+    assert.doesNotMatch(fake.stdout.text, /Notices:/);
+  }
+});
+
 test('managed identity recognizes npm pins and git refs as pinned drift in object declarations', async (t) => {
   const fake = createFakeHost(t);
   const packages = [
@@ -119,6 +147,47 @@ test('unrelated npm names and local paths do not satisfy managed identities', as
   ));
   assert.ok(fake.stdout.text.includes('review (git:github.com/earendil-works/pi-review): drift — not installed'));
   assert.doesNotMatch(fake.stdout.text, /subagents \(npm:@tintinweb\/pi-subagents\): ok/);
+});
+
+test('install leaves a git-prefixed HTTPS declaration alone', async (t) => {
+  const fake = createFakeHost(t);
+  const packages = managedPackages.map(({ source }) => (
+    source === 'git:github.com/earendil-works/pi-claude-code'
+      ? 'git:https://github.com/earendil-works/pi-claude-code'
+      : source
+  ));
+  await fake.writeGlobalSettings({ packages });
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0);
+  assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [
+    ['pi', ['--version']],
+  ]);
+  assert.match(fake.stdout.text, /OK: 8 items/);
+  assert.doesNotMatch(fake.stdout.text, /Notices:/);
+  assert.deepEqual((await fake.readGlobalSettings()).packages, packages);
+});
+
+test('canonical and git-prefixed equivalent declarations fail as duplicates without install or update', async (t) => {
+  for (const command of ['install', 'update']) {
+    const fake = createFakeHost(t);
+    await fake.writeGlobalSettings({
+      packages: [
+        ...managedPackages.map(({ source }) => source),
+        'git:https://github.com/earendil-works/pi-claude-code',
+      ],
+    });
+
+    const code = await run([command], fake.host);
+
+    assert.equal(code, 2, `${command} duplicate of a required package fails the run`);
+    assert.ok(fake.stdout.text.includes(
+      'claude-code (git:github.com/earendil-works/pi-claude-code): declared 2 times in global settings',
+    ));
+    assert.ok(!fake.runnerCalls.some(({ args }) => args[1] === 'git:github.com/earendil-works/pi-claude-code'));
+    assert.ok(!fake.runnerCalls.some(({ args }) => args[1] === 'git:https://github.com/earendil-works/pi-claude-code'));
+  }
 });
 
 test('doctor gives the same managed-package inventory as status', async (t) => {

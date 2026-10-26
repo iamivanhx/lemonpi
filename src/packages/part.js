@@ -42,30 +42,51 @@ function installFailureReason(source, result, env) {
   return commandFailureReason('install', source, result, env);
 }
 
+function settingsFailureItem(settings, env) {
+  const path = sanitizeDiagnostic(settings.path, env);
+  const error = sanitizeDiagnostic(settings.error, env);
+  return {
+    name: 'Pi settings',
+    kind: 'action',
+    outcome: 'failed',
+    reason: `can't parse ${path}: ${error}`,
+    required: true,
+  };
+}
+
+function stopForUnreadableSettings(items, settings, notices, env) {
+  return [...items, settingsFailureItem(settings, env), ...noticeItems(notices, env)];
+}
+
 async function updatePackage(ctx, item, source) {
-  if (ctx.command !== 'update') return item;
+  if (ctx.command !== 'update') return { items: [item] };
   if (ctx.dryRun) {
     return {
-      ...item,
-      outcome: 'changed',
-      reason: item.outcome === 'changed' ? `${item.reason}; would update` : 'would update',
+      items: [{
+        ...item,
+        outcome: 'changed',
+        reason: item.outcome === 'changed' ? `${item.reason}; would update` : 'would update',
+      }],
     };
   }
-  if (ctx.signal.aborted) return item;
+  if (ctx.signal.aborted) return { items: [item] };
 
   const result = await ctx.runner('pi', ['update', source, '--no-approve'], {
     cwd: ctx.tmpdir,
     signal: ctx.signal,
   });
-  await readSettings(ctx);
-  if (commandFailed(result)) {
-    return {
+  const settings = await readSettings(ctx);
+  const updatedItem = commandFailed(result)
+    ? {
       ...item,
       outcome: 'failed',
       reason: commandFailureReason('update', source, result, ctx.env),
-    };
-  }
-  return item;
+    }
+    : item;
+  return {
+    items: [updatedItem],
+    ...(settings.ok ? {} : { settingsFailure: settings }),
+  };
 }
 
 function commandFailed(result) {
@@ -90,16 +111,28 @@ async function migrateReplaced(ctx, { id, source, required, declarations, replac
   const needsInstall = declarations.length !== 1 || declarations[0].pinned;
   let installResult;
   if (needsInstall) {
-    if (ctx.signal.aborted) return null;
+    if (ctx.signal.aborted) return { item: null };
     installResult = await ctx.runner('pi', ['install', source, '--no-approve'], {
       cwd: ctx.tmpdir,
       signal: ctx.signal,
     });
-    if (commandFailed(installResult)) {
-      return migrationFailure(name, required, installFailureReason(source, installResult, ctx.env), ctx.env);
-    }
-    if (ctx.signal.aborted) {
-      return {
+  }
+
+  const afterInstall = await readSettings(ctx);
+  if (!afterInstall.ok) {
+    const item = installResult && commandFailed(installResult)
+      ? migrationFailure(name, required, installFailureReason(source, installResult, ctx.env), ctx.env)
+      : null;
+    return { item, settingsFailure: afterInstall };
+  }
+  if (installResult && commandFailed(installResult)) {
+    return {
+      item: migrationFailure(name, required, installFailureReason(source, installResult, ctx.env), ctx.env),
+    };
+  }
+  if (ctx.signal.aborted && needsInstall) {
+    return {
+      item: {
         name,
         kind: 'action',
         outcome: 'changed',
@@ -108,22 +141,16 @@ async function migrateReplaced(ctx, { id, source, required, declarations, replac
           ctx.env,
         ),
         required,
-      };
-    }
+      },
+    };
   }
 
-  const afterInstall = await readSettings(ctx);
   const installedIdentity = identifySource(source)?.identity;
-  const installedDeclarations = afterInstall.ok
-    ? afterInstall.declarations.filter(({ identity }) => identity === installedIdentity)
-    : [];
+  const installedDeclarations = afterInstall.declarations.filter(({ identity }) => identity === installedIdentity);
   const verified = installedDeclarations.length === 1 && !installedDeclarations[0].pinned;
   if (!verified) {
-    const installDiagnostics = [
-      installResult ? installFailureReason(source, installResult, ctx.env) : '',
-      afterInstall.ok ? '' : `settings: ${sanitizeDiagnostic(afterInstall.error, ctx.env)}`,
-    ].filter(Boolean).join('\n');
-    return migrationFailure(name, required, installDiagnostics, ctx.env);
+    const installDiagnostics = installResult ? installFailureReason(source, installResult, ctx.env) : '';
+    return { item: migrationFailure(name, required, installDiagnostics, ctx.env) };
   }
 
   let afterRemove;
@@ -131,14 +158,16 @@ async function migrateReplaced(ctx, { id, source, required, declarations, replac
   for (const declaration of replacedDeclarations) {
     if (ctx.signal.aborted) {
       return {
-        name,
-        kind: 'action',
-        outcome: 'changed',
-        reason: sanitizeDiagnostic(
-          'replacement verified; migration interrupted before removing npm:pi-subagents',
-          ctx.env,
-        ),
-        required,
+        item: {
+          name,
+          kind: 'action',
+          outcome: 'changed',
+          reason: sanitizeDiagnostic(
+            'replacement verified; migration interrupted before removing npm:pi-subagents',
+            ctx.env,
+          ),
+          required,
+        },
       };
     }
     const removeSource = declaration.source;
@@ -148,22 +177,25 @@ async function migrateReplaced(ctx, { id, source, required, declarations, replac
     });
     lastRemoval = { source: removeSource, result };
     afterRemove = await readSettings(ctx);
-    if (commandFailed(result)) {
-      return {
+    if (!afterRemove.ok) {
+      const item = commandFailed(result) ? {
         name,
         kind: 'action',
         outcome: 'failed',
         reason: commandFailureReason('remove', removeSource, result, ctx.env),
         required,
-      };
+      } : null;
+      return { item, settingsFailure: afterRemove };
     }
-    if (!afterRemove.ok) {
+    if (commandFailed(result)) {
       return {
-        name,
-        kind: 'action',
-        outcome: 'failed',
-        reason: `${commandFailureReason('remove', removeSource, result, ctx.env)}\nsettings: ${sanitizeDiagnostic(afterRemove.error, ctx.env)}`,
-        required,
+        item: {
+          name,
+          kind: 'action',
+          outcome: 'failed',
+          reason: commandFailureReason('remove', removeSource, result, ctx.env),
+          required,
+        },
       };
     }
     const replacementDeclarations = afterRemove.declarations.filter(({ identity }) => (
@@ -171,51 +203,49 @@ async function migrateReplaced(ctx, { id, source, required, declarations, replac
     ));
     if (replacementDeclarations.length !== 1 || replacementDeclarations[0].pinned) {
       return {
-        name,
-        kind: 'action',
-        outcome: 'failed',
-        reason: `${commandFailureReason('remove', removeSource, result, ctx.env)}\nreplacement declaration not verified after pi remove`,
-        required,
+        item: {
+          name,
+          kind: 'action',
+          outcome: 'failed',
+          reason: `${commandFailureReason('remove', removeSource, result, ctx.env)}\nreplacement declaration not verified after pi remove`,
+          required,
+        },
       };
     }
   }
 
   const replacedIdentities = new Set(replacedDeclarations.map(({ identity }) => identity));
-  const replacedStillDeclared = afterRemove?.ok && afterRemove.declarations.some(({ identity }) => (
+  const replacedStillDeclared = afterRemove?.declarations.some(({ identity }) => (
     replacedIdentities.has(identity)
   ));
   if (replacedStillDeclared) {
     return {
-      name,
-      kind: 'action',
-      outcome: 'failed',
-      reason: `${commandFailureReason('remove', lastRemoval.source, lastRemoval.result, ctx.env)}\nreplaced package still declared after pi remove`,
-      required,
+      item: {
+        name,
+        kind: 'action',
+        outcome: 'failed',
+        reason: `${commandFailureReason('remove', lastRemoval.source, lastRemoval.result, ctx.env)}\nreplaced package still declared after pi remove`,
+        required,
+      },
     };
   }
 
   return {
-    name,
-    kind: 'action',
-    outcome: 'changed',
-    reason: sanitizeDiagnostic(`migrated npm:pi-subagents → ${source}`, ctx.env),
-    required,
+    item: {
+      name,
+      kind: 'action',
+      outcome: 'changed',
+      reason: sanitizeDiagnostic(`migrated npm:pi-subagents → ${source}`, ctx.env),
+      required,
+    },
   };
 }
 
 async function installMissing(ctx) {
   const settings = await readSettings(ctx);
   if (!settings.ok) {
-    const path = sanitizeDiagnostic(settings.path, ctx.env);
-    const error = sanitizeDiagnostic(settings.error, ctx.env);
     const projectOnly = await classifySettings(ctx, []);
-    return [{
-      name: 'Pi settings',
-      kind: 'action',
-      outcome: 'failed',
-      reason: `can't parse ${path}: ${error}`,
-      required: true,
-    }, ...noticeItems(projectOnly.notices, ctx.env)];
+    return [settingsFailureItem(settings, ctx.env), ...noticeItems(projectOnly.notices, ctx.env)];
   }
 
   const classification = await classifySettings(ctx, settings.declarations);
@@ -247,22 +277,39 @@ async function installMissing(ctx) {
 
     if (state === 'migration-pending') {
       if (ctx.dryRun) {
-        items.push(await updatePackage(ctx, {
+        const update = await updatePackage(ctx, {
           name,
           kind: 'action',
           outcome: 'changed',
           reason: sanitizeDiagnostic(`would migrate npm:pi-subagents → ${source}`, ctx.env),
           required,
-        }, source));
+        }, source);
+        items.push(...update.items);
       } else {
-        const item = await migrateReplaced(ctx, {
+        const migration = await migrateReplaced(ctx, {
           id,
           source,
           required,
           declarations,
           replacedDeclarations,
         });
-        if (item) items.push(item.outcome === 'changed' ? await updatePackage(ctx, item, source) : item);
+        if (migration.item?.outcome === 'changed' && !migration.settingsFailure) {
+          const update = await updatePackage(ctx, migration.item, source);
+          items.push(...update.items);
+          if (update.settingsFailure) {
+            return stopForUnreadableSettings(items, update.settingsFailure, classification.notices, ctx.env);
+          }
+        } else if (migration.item) {
+          items.push(migration.item);
+        }
+        if (migration.settingsFailure) {
+          return stopForUnreadableSettings(
+            items,
+            migration.settingsFailure,
+            classification.notices,
+            ctx.env,
+          );
+        }
       }
       continue;
     }
@@ -270,12 +317,16 @@ async function installMissing(ctx) {
     const identity = identifySource(source)?.identity;
     const pinned = state === 'pinned';
     if (state === 'ok') {
-      items.push(await updatePackage(ctx, { name, kind: 'action', outcome: 'ok', required }, source));
+      const update = await updatePackage(ctx, { name, kind: 'action', outcome: 'ok', required }, source);
+      items.push(...update.items);
+      if (update.settingsFailure) {
+        return stopForUnreadableSettings(items, update.settingsFailure, classification.notices, ctx.env);
+      }
       continue;
     }
 
     if (ctx.dryRun) {
-      items.push(await updatePackage(ctx, {
+      const update = await updatePackage(ctx, {
         name,
         kind: 'action',
         outcome: 'changed',
@@ -283,7 +334,8 @@ async function installMissing(ctx) {
           ? sanitizeDiagnostic(`would unpin ${declarations[0].pin} → ${source}`, ctx.env)
           : 'would install',
         required,
-      }, source));
+      }, source);
+      items.push(...update.items);
       continue;
     }
 
@@ -292,9 +344,21 @@ async function installMissing(ctx) {
       signal: ctx.signal,
     });
     const afterInstall = await readSettings(ctx);
-    const afterDeclarations = afterInstall.ok
-      ? afterInstall.declarations.filter(({ identity: declaredIdentity }) => declaredIdentity === identity)
-      : [];
+    if (!afterInstall.ok) {
+      if (commandFailed(result)) {
+        items.push({
+          name,
+          kind: 'action',
+          outcome: 'failed',
+          reason: installFailureReason(source, result, ctx.env),
+          required,
+        });
+      }
+      return stopForUnreadableSettings(items, afterInstall, classification.notices, ctx.env);
+    }
+    const afterDeclarations = afterInstall.declarations.filter(({ identity: declaredIdentity }) => (
+      declaredIdentity === identity
+    ));
     const nowDeclared = pinned
       ? afterDeclarations.length === 1 && !afterDeclarations[0].pinned
       : afterDeclarations.length > 0;
@@ -314,14 +378,14 @@ async function installMissing(ctx) {
         kind: 'action',
         outcome: 'failed',
         reason: pinned && afterDeclarations.length === 1 && afterDeclarations[0].pinned
-          ? 'still pinned after pi install'
+          ? `still pinned after pi install\n${installFailureReason(source, result, ctx.env)}`
           : installFailureReason(source, result, ctx.env),
         required,
       });
       continue;
     }
 
-    items.push(await updatePackage(ctx, {
+    const update = await updatePackage(ctx, {
       name,
       kind: 'action',
       outcome: 'changed',
@@ -329,7 +393,11 @@ async function installMissing(ctx) {
         ? sanitizeDiagnostic(`unpinned ${declarations[0].pin} → ${source}`, ctx.env)
         : 'installed',
       required,
-    }, source));
+    }, source);
+    items.push(...update.items);
+    if (update.settingsFailure) {
+      return stopForUnreadableSettings(items, update.settingsFailure, classification.notices, ctx.env);
+    }
   }
   return [...items, ...noticeItems(classification.notices, ctx.env)];
 }

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
 import { run } from '../src/cli.js';
@@ -54,6 +56,94 @@ test('migration removes every replaced source spelling as declared', async (t) =
     replacementSource,
     ...managedSources.slice(1),
   ]);
+});
+
+test('unreadable settings after migration install stops before removal and later packages', async (t) => {
+  const fake = createFakeHost(t);
+  await fake.writeGlobalSettings({
+    packages: [replacedSource, ...managedSources.slice(1, 5)],
+  });
+  const runner = fake.host.runner;
+  fake.host.runner = async (command, args, options) => {
+    const result = await runner(command, args, options);
+    if (command === 'pi' && args[0] === 'install' && args[1] === replacementSource) {
+      await writeFile(join(fake.piCodingAgentDir, 'settings.json'), '[]');
+    }
+    return result;
+  };
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 2);
+  assert.match(fake.stdout.text, /Pi settings: can't parse/);
+  assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args), [[
+    'install', replacementSource, '--no-approve',
+  ]]);
+});
+
+test('unreadable settings after migration removal stops before later packages', async (t) => {
+  const fake = createFakeHost(t);
+  await fake.writeGlobalSettings({
+    packages: [replacedSource, replacementSource, ...managedSources.slice(1, 5)],
+  });
+  const runner = fake.host.runner;
+  fake.host.runner = async (command, args, options) => {
+    const result = await runner(command, args, options);
+    if (command === 'pi' && args[0] === 'remove' && args[1] === replacedSource) {
+      await writeFile(join(fake.piCodingAgentDir, 'settings.json'), '[]');
+    }
+    return result;
+  };
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 2);
+  assert.match(fake.stdout.text, /Pi settings: can't parse/);
+  assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args), [[
+    'remove', replacedSource, '--no-approve',
+  ]]);
+});
+
+test('migration command diagnostics survive an unreadable post-mutation settings reread', async (t) => {
+  const secret = 'migration-reread-secret';
+  for (const [subcommand, source, packages] of [
+    ['install', replacementSource, [replacedSource, ...managedSources.slice(1, 5)]],
+    ['remove', replacedSource, [replacedSource, replacementSource, ...managedSources.slice(1, 5)]],
+  ]) {
+    const fake = createFakeHost(t, {
+      env: { LEMON_ACCESS_TOKEN: secret },
+      fakePi: {
+        failures: [{
+          subcommand,
+          source,
+          code: 23,
+          stdout: 'migration command stdout',
+          stderr: `migration command stderr ${secret}`,
+        }],
+      },
+    });
+    await fake.writeGlobalSettings({ packages });
+    const runner = fake.host.runner;
+    fake.host.runner = async (command, args, options) => {
+      const result = await runner(command, args, options);
+      if (command === 'pi' && args[0] === subcommand && args[1] === source) {
+        await writeFile(join(fake.piCodingAgentDir, 'settings.json'), '[]');
+      }
+      return result;
+    };
+
+    const code = await run(['install'], fake.host);
+
+    assert.equal(code, 2);
+    assert.match(fake.stdout.text, /Pi settings: can't parse/);
+    assert.ok(fake.stdout.text.includes(`pi ${subcommand} ${source} --no-approve`));
+    assert.ok(fake.stdout.text.includes('migration command stdout'));
+    assert.ok(fake.stdout.text.includes('migration command stderr [redacted]'));
+    assert.doesNotMatch(fake.stdout.text, new RegExp(secret));
+    assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args), [[
+      subcommand, source, '--no-approve',
+    ]]);
+  }
 });
 
 test('install removes the replaced package without reinstalling an existing replacement', async (t) => {

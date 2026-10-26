@@ -89,6 +89,44 @@ test('optional update failures preserve upgrade hints and later packages still u
   assert.ok(fake.stdout.text.includes('OK: 7 items'));
 });
 
+test('update stops after an optional mutation makes global settings unreadable', async (t) => {
+  const secret = 'settings-reread-secret';
+  const fake = createFakeHost(t, {
+    env: { LEMON_ACCESS_TOKEN: secret },
+    fakePi: {
+      failures: [{
+        subcommand: 'update',
+        source: managedSources[5],
+        code: 23,
+        stdout: 'optional update failure output',
+        stderr: `Pi upgrade required ${secret}`,
+      }],
+    },
+  });
+  await fake.writeGlobalSettings({ packages: managedSources });
+  const runner = fake.host.runner;
+  fake.host.runner = async (command, args, options) => {
+    const result = await runner(command, args, options);
+    if (command === 'pi' && args[0] === 'update' && args[1] === managedSources[5]) {
+      await writeFile(join(fake.piCodingAgentDir, 'settings.json'), '{"packages": [');
+    }
+    return result;
+  };
+
+  const code = await run(['update'], fake.host);
+
+  assert.equal(code, 2);
+  assert.match(fake.stdout.text, /Pi settings: can't parse/);
+  assert.ok(fake.stdout.text.includes(`pi update ${managedSources[5]} --no-approve`));
+  assert.ok(fake.stdout.text.includes('optional update failure output'));
+  assert.ok(fake.stdout.text.includes('Pi upgrade required [redacted]'));
+  assert.doesNotMatch(fake.stdout.text, new RegExp(secret));
+  assert.match(fake.stdout.text, /OK: 5 items/);
+  assert.deepEqual(packageCalls(fake).map(({ args }) => args), managedSources
+    .slice(0, 6)
+    .map((source) => ['update', source, '--no-approve']));
+});
+
 test('required update failures set exit 2 and do not stop later package updates', async (t) => {
   const fake = createFakeHost(t, {
     fakePi: {

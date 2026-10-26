@@ -27,22 +27,41 @@ function gitIdentity(source) {
       : nameAndPin;
     return name ? `npm:${name}` : null;
   }
-  let normalized = source.startsWith('git:') ? source.slice(4) : source;
-  if (/^(?:https|ssh):\/\//i.test(normalized)) {
+
+  const trimmed = source.trim();
+  const hasGitPrefix = trimmed.startsWith('git:');
+  const value = hasGitPrefix ? trimmed.slice('git:'.length).trim() : trimmed;
+  if (!hasGitPrefix && !/^(?:https?|ssh|git):\/\//i.test(value)) return null;
+
+  let host;
+  let path;
+  if (/^(?:https?|ssh|git):\/\//i.test(value)) {
     try {
-      const parsed = new URL(normalized);
-      normalized = `${parsed.host}${parsed.pathname}`;
+      const parsed = new URL(value);
+      host = parsed.hostname.toLowerCase();
+      path = parsed.pathname.replace(/^\/+/, '');
     } catch {
       return null;
     }
+  } else if (hasGitPrefix) {
+    const scpStyle = /^git@([^/:?#\s]+):(.+)$/i.exec(value);
+    if (scpStyle) {
+      [, host, path] = scpStyle;
+      host = host.toLowerCase();
+    } else {
+      const shorthand = /^([^/:?#\s]+)\/(.+)$/.exec(value);
+      if (!shorthand) return null;
+      [, host, path] = shorthand;
+      host = host.toLowerCase();
+    }
   } else {
-    const scpStyle = /^(?:git@)?([^/:]+):(.+)$/.exec(normalized);
-    if (scpStyle) normalized = `${scpStyle[1]}/${scpStyle[2]}`;
+    return null;
   }
-  const ref = normalized.indexOf('@');
-  if (ref !== -1) normalized = normalized.slice(0, ref);
-  normalized = normalized.replace(/\.git$/i, '');
-  return `git:${normalized}`;
+
+  const ref = path.indexOf('@');
+  if (ref !== -1) path = path.slice(0, ref);
+  path = path.replace(/\.git$/i, '');
+  return host && path ? `git:${host}/${path}` : null;
 }
 
 async function installGitFixture(agentDirectory, source) {
