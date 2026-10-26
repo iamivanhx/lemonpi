@@ -15,3 +15,11 @@ _Avoid_: unknown package, foreign package
 **Replaced package**:
 A package that a managed package supersedes (today `npm:pi-subagents`, superseded by tintinweb subagents), which lemonpi removes only after the replacement is declared.
 _Avoid_: legacy package, old package
+
+**Readiness**:
+Whether a component lemonpi configures can actually be used on this machine, judged from local facts only, without changing anything, refreshing credentials, or contacting the network.
+_Avoid_: health, availability
+
+**Unknown**:
+A readiness state meaning a check could not be verified safely; it is never counted as ready or as failed.
+_Avoid_: skipped, indeterminate
