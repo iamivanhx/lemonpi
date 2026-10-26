@@ -1,6 +1,22 @@
+import { parseArgs } from 'node:util';
 import packageJson from '../package.json' with { type: 'json' };
 
 const BUILT_IN_PARTS = Object.freeze([]);
+const COMMANDS = new Set(['install', 'update', 'status', 'doctor', 'skills']);
+const COMMAND_FLAGS = {
+  install: ['--dry-run', '--skip', '--skip-skills'],
+  update: ['--dry-run', '--skip', '--skip-skills'],
+  status: ['--skip'],
+  doctor: ['--skip', '--skip-skills'],
+  skills: ['--dry-run'],
+};
+const ARGUMENT_OPTIONS = {
+  help: { type: 'boolean', short: 'h' },
+  version: { type: 'boolean' },
+  'dry-run': { type: 'boolean' },
+  skip: { type: 'string' },
+  'skip-skills': { type: 'boolean' },
+};
 const USAGE = `Usage: lemonpi [command] [options]
 
 Commands:
@@ -25,19 +41,72 @@ Exit codes:
   143  interrupted by SIGTERM
 `;
 
+function usageError(host, message) {
+  host.stderr.write(`lemonpi: ${message}; run \`lemonpi --help\` for usage\n`);
+  return 2;
+}
+
+function parseErrorMessage(error) {
+  const unknownOption = /^Unknown option '([^']+)'/.exec(error.message);
+  if (unknownOption) return `unknown option '${unknownOption[1]}'`;
+
+  const missingValue = /^Option '([^']+)' argument missing/.exec(error.message);
+  if (missingValue) return `missing value for ${missingValue[1].split(' ')[0]}`;
+
+  const firstLine = error.message.split('\n', 1)[0].replace(/\.$/, '');
+  return `invalid arguments: ${firstLine}`;
+}
+
 export async function run(argv, host, options = {}) {
   const parts = options.parts ?? BUILT_IN_PARTS;
   void parts;
-
-  if (argv.includes('--version')) {
-    host.stdout.write(`${packageJson.version}\n`);
-    return 0;
-  }
 
   if (argv.includes('--help') || argv.includes('-h')) {
     host.stdout.write(USAGE);
     return 0;
   }
 
+  if (argv.includes('--version')) {
+    host.stdout.write(`${packageJson.version}\n`);
+    return 0;
+  }
+
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, options: ARGUMENT_OPTIONS, strict: true, allowPositionals: true });
+  } catch (error) {
+    return usageError(host, parseErrorMessage(error));
+  }
+
+  const command = parsed.positionals[0] ?? 'install';
+  if (!COMMANDS.has(command)) {
+    return usageError(host, `unknown command '${command}'`);
+  }
+  if (parsed.positionals.length > 1) {
+    return usageError(host, `unexpected argument '${parsed.positionals[1]}'`);
+  }
+
+  const suppliedFlags = [
+    ['--dry-run', Object.hasOwn(parsed.values, 'dry-run')],
+    ['--skip', Object.hasOwn(parsed.values, 'skip')],
+    ['--skip-skills', Object.hasOwn(parsed.values, 'skip-skills')],
+  ];
+  const unsupportedFlag = suppliedFlags.find(([flag, supplied]) => supplied && !COMMAND_FLAGS[command].includes(flag));
+  if (unsupportedFlag) {
+    return usageError(host, `option '${unsupportedFlag[0]}' is not valid for command '${command}'`);
+  }
+
+  if (parsed.values.skip === '') {
+    return usageError(host, 'missing value for --skip');
+  }
+
+  const flags = {
+    dryRun: parsed.values['dry-run'] ?? false,
+    skip: parsed.values.skip === undefined ? [] : parsed.values.skip.split(','),
+    skipSkills: parsed.values['skip-skills'] ?? false,
+  };
+  void flags;
+
+  host.stdout.write(`lemonpi ${command}: not yet implemented\n`);
   return 0;
 }
