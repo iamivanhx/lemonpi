@@ -69,7 +69,7 @@ export async function checkPrerequisites(host) {
     return refuse(`Node ${printableVersion} is not supported; lemonpi requires Node ${REQUIRED_NODE_VERSION} or newer`);
   }
 
-  const result = await host.runner('pi', ['--version']);
+  const result = await host.runner('pi', ['--version'], { signal: host.signal });
   if (result.notFound) {
     return failedPi('Pi not found on PATH; lemonpi configures an existing Pi and never installs it');
   }

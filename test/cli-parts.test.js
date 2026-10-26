@@ -67,6 +67,159 @@ test('parts run only for registered commands', async (t) => {
   assert.deepEqual(order, ['first', 'second']);
 });
 
+test('an interrupted part prevents later parts and summarizes its collected items', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  let secondPartCalls = 0;
+  let announcePartStarted;
+  let finishPart;
+  const partStarted = new Promise((resolve) => { announcePartStarted = resolve; });
+  const finishRunningPart = new Promise((resolve) => { finishPart = resolve; });
+  const parts = [
+    {
+      name: 'A',
+      commands: ['install'],
+      run: async () => {
+        announcePartStarted();
+        await finishRunningPart;
+        return [{ name: 'A item', kind: 'action', outcome: 'changed' }];
+      },
+    },
+    {
+      name: 'B',
+      commands: ['install'],
+      run: async () => {
+        secondPartCalls += 1;
+        return [{ name: 'B item', kind: 'action', outcome: 'changed' }];
+      },
+    },
+  ];
+
+  const execution = run(['install'], fake.host, { parts });
+  await partStarted;
+  fake.abortController.abort('SIGINT');
+  finishPart();
+  const code = await execution;
+
+  assert.equal(secondPartCalls, 0);
+  assert.equal(code, 130);
+  assert.match(fake.stdout.text, /interrupted/i);
+  assert.match(fake.stdout.text, /A item/);
+  assert.match(fake.stdout.text, /Result: interrupted — exit 130 means lemonpi stopped on SIGINT/);
+  assert.doesNotMatch(fake.stdout.text, /B item/);
+});
+
+test('SIGTERM interrupts a running part with exit 143', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  let secondPartCalls = 0;
+  const parts = [
+    {
+      name: 'A',
+      commands: ['install'],
+      run: async () => {
+        fake.abortController.abort('SIGTERM');
+        return [{ name: 'A item', kind: 'action', outcome: 'changed' }];
+      },
+    },
+    {
+      name: 'B',
+      commands: ['install'],
+      run: async () => {
+        secondPartCalls += 1;
+        return [];
+      },
+    },
+  ];
+
+  const code = await run(['install'], fake.host, { parts });
+
+  assert.equal(secondPartCalls, 0);
+  assert.equal(code, 143);
+  assert.match(fake.stdout.text, /interrupted/);
+  assert.match(fake.stdout.text, /A item/);
+  assert.match(fake.stdout.text, /Result: interrupted — exit 143 means lemonpi stopped on SIGTERM/);
+});
+
+test('an abort during the prerequisite probe interrupts before any part starts', async (t) => {
+  const fake = createFakeHost(t);
+  let secondProbeOptions;
+  let partCalls = 0;
+  fake.host.runner = async (command, args, options) => {
+    secondProbeOptions = options;
+    fake.abortController.abort('SIGTERM');
+    return { code: null, signal: 'SIGTERM', stdout: '', stderr: '' };
+  };
+  const parts = [{
+    name: 'never started',
+    commands: ['install'],
+    run: async () => {
+      partCalls += 1;
+      return [];
+    },
+  }];
+
+  const code = await run(['install'], fake.host, { parts });
+
+  assert.equal(code, 143);
+  assert.equal(secondProbeOptions?.signal, fake.host.signal);
+  assert.equal(partCalls, 0);
+  assert.match(fake.stdout.text, /interrupted/);
+  assert.match(fake.stdout.text, /Result: interrupted — exit 143 means lemonpi stopped on SIGTERM/);
+  assert.doesNotMatch(fake.stdout.text, /Result: failed/);
+});
+
+test('an abort before run starts launches no prerequisite child or part', async (t) => {
+  const fake = createFakeHost(t);
+  fake.abortController.abort('SIGINT');
+  let partCalls = 0;
+  const parts = [{
+    name: 'never started',
+    commands: ['status'],
+    run: async () => {
+      partCalls += 1;
+      return [];
+    },
+  }];
+
+  const code = await run(['status'], fake.host, { parts });
+
+  assert.deepEqual(fake.runnerCalls, []);
+  assert.equal(partCalls, 0);
+  assert.equal(code, 130);
+  assert.match(fake.stdout.text, /interrupted/);
+  assert.match(fake.stdout.text, /Result: interrupted — exit 130 means lemonpi stopped on SIGINT/);
+});
+
+test('interrupted inventory summaries retain collected items and signal result', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  let laterPartCalls = 0;
+  const parts = [
+    {
+      name: 'inventory A',
+      commands: ['status'],
+      run: async () => {
+        fake.abortController.abort('SIGINT');
+        return [{ name: 'A setting', kind: 'inventory', outcome: 'ok' }];
+      },
+    },
+    {
+      name: 'inventory B',
+      commands: ['status'],
+      run: async () => {
+        laterPartCalls += 1;
+        return [];
+      },
+    },
+  ];
+
+  const code = await run(['status'], fake.host, { parts });
+
+  assert.equal(code, 130);
+  assert.equal(laterPartCalls, 0);
+  assert.match(fake.stdout.text, /A setting: ok/);
+  assert.match(fake.stdout.text, /interrupted/);
+  assert.match(fake.stdout.text, /Result: interrupted — exit 130 means lemonpi stopped on SIGINT/);
+});
+
 test('parts receive parsed context and the injected agent directory', async (t) => {
   const contexts = [];
   const part = {

@@ -44,6 +44,10 @@ Exit codes:
   143  interrupted by SIGTERM
 `;
 
+function interruptedExitCode(signal) {
+  return signal.reason === 'SIGTERM' ? 143 : 130;
+}
+
 function exitCodeFor(items, dryRun = false) {
   const failedPrerequisiteOrUsage = items.some((item) => (
     item.kind === 'usage' || (item.kind === 'prerequisite' && item.outcome === 'failed')
@@ -129,15 +133,29 @@ export async function run(argv, host, options = {}) {
   };
   const dryRun = parsed.values['dry-run'] ?? false;
 
-  const prerequisites = await checkPrerequisites(host);
+  const prerequisites = host.signal.aborted
+    ? {
+      ok: false,
+      type: 'interrupted',
+      pi: { ok: false, version: null, reason: 'interrupted before the prerequisite check completed' },
+    }
+    : await checkPrerequisites(host);
   if (!prerequisites.ok && prerequisites.type === 'refusal') {
     host.stderr.write(`${prerequisites.message}\n`);
     return exitCodeFor([{ kind: 'prerequisite', outcome: 'failed' }]);
   }
 
+  const interruptedPrerequisite = host.signal.aborted && !prerequisites.ok;
+  const piPrerequisite = interruptedPrerequisite
+    ? {
+      ...prerequisites.pi,
+      reason: 'interrupted before the prerequisite check completed',
+      interrupted: true,
+    }
+    : prerequisites.pi;
   const items = prerequisites.ok
     ? []
-    : [{ name: 'Pi', kind: 'prerequisite', outcome: 'failed', reason: prerequisites.pi.reason }];
+    : [{ name: 'Pi', kind: 'prerequisite', outcome: 'failed', reason: piPrerequisite.reason }];
   if (prerequisites.ok) {
     const context = {
       command,
@@ -149,19 +167,21 @@ export async function run(argv, host, options = {}) {
       signal: host.signal,
     };
     for (const part of parts) {
+      if (host.signal.aborted) break;
       if (part.commands.includes(command)) {
         items.push(...await part.run(context));
       }
     }
   }
 
-  const exitCode = exitCodeFor(items, dryRun);
+  const interrupted = host.signal.aborted;
+  const exitCode = interrupted ? interruptedExitCode(host.signal) : exitCodeFor(items, dryRun);
   const useColor = host.stdout.isTTY === true && host.env.NO_COLOR === undefined;
   const summary = ['install', 'update', 'skills'].includes(command)
-    ? renderExceptionsSummary(command, prerequisites.pi, items, exitCode, useColor, dryRun)
+    ? renderExceptionsSummary(command, piPrerequisite, items, exitCode, useColor, dryRun, interrupted)
     : prerequisites.ok && parts.some((part) => part.commands.includes(command))
-      ? renderInventorySummary(command, prerequisites.pi, items, exitCode, useColor)
-      : renderMinimalSummary(command, prerequisites.pi, exitCode);
+      ? renderInventorySummary(command, piPrerequisite, items, exitCode, useColor, interrupted)
+      : renderMinimalSummary(command, piPrerequisite, exitCode, interrupted);
   host.stdout.write(summary);
   return exitCode;
 }

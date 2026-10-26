@@ -26,19 +26,25 @@ function renderGroup(lines, title, color, items, useColor, getOutcome) {
   for (const item of items) lines.push(renderItem(item, getOutcome?.(item), useColor));
 }
 
-function renderResult(exitCode) {
+function renderInterruptedResult(exitCode) {
+  const signal = exitCode === 143 ? 'SIGTERM' : 'SIGINT';
+  return `Result: interrupted — exit ${exitCode} means lemonpi stopped on ${signal}; completed changes were kept.`;
+}
+
+function renderResult(exitCode, interrupted = false) {
+  if (interrupted) return renderInterruptedResult(exitCode);
   if (exitCode === 0) return 'Result: ok — exit 0 means the run completed successfully.';
   if (exitCode === 1) return 'Result: partial — exit 1 means a partial result or drift.';
   return 'Result: failed — exit 2 means a prerequisite or required item failed.';
 }
 
-export function renderExceptionsSummary(command, piPrerequisite, items, exitCode, useColor = false, dryRun = false) {
+export function renderExceptionsSummary(command, piPrerequisite, items, exitCode, useColor = false, dryRun = false, interrupted = false) {
   const version = piPrerequisite.version ?? 'unknown';
   const piLine = piPrerequisite.ok
     ? `  Pi: ok (${piPrerequisite.version})`
-    : `  Pi: failed — ${piPrerequisite.reason}`;
+    : `  Pi: ${piPrerequisite.interrupted ? 'interrupted' : 'failed'} — ${piPrerequisite.reason}`;
   const lines = [
-    styled(`lemonpi ${command} — Pi ${version}${dryRun ? ' — dry run (nothing was changed)' : ''}`, '\u001b[1;36m', useColor),
+    styled(`lemonpi ${command} — Pi ${version}${dryRun ? ' — dry run (nothing was changed)' : ''}${interrupted ? ' — interrupted' : ''}`, '\u001b[1;36m', useColor),
     'Prerequisites:',
     piLine,
   ];
@@ -78,17 +84,17 @@ export function renderExceptionsSummary(command, piPrerequisite, items, exitCode
     useColor,
     (item) => item.outcome.charAt(0).toUpperCase() + item.outcome.slice(1),
   );
-  lines.push(renderResult(exitCode));
+  lines.push(renderResult(exitCode, interrupted));
   return `${lines.join('\n')}\n`;
 }
 
-export function renderInventorySummary(command, piPrerequisite, items, exitCode, useColor = false) {
+export function renderInventorySummary(command, piPrerequisite, items, exitCode, useColor = false, interrupted = false) {
   const version = piPrerequisite.version ?? 'unknown';
   const piLine = piPrerequisite.ok
     ? `  Pi: ok (${piPrerequisite.version})`
-    : `  Pi: failed — ${piPrerequisite.reason}`;
+    : `  Pi: ${piPrerequisite.interrupted ? 'interrupted' : 'failed'} — ${piPrerequisite.reason}`;
   const lines = [
-    styled(`lemonpi ${command} — Pi ${version}`, '\u001b[1;36m', useColor),
+    styled(`lemonpi ${command} — Pi ${version}${interrupted ? ' — interrupted' : ''}`, '\u001b[1;36m', useColor),
     'Prerequisites:',
     piLine,
   ];
@@ -119,23 +125,27 @@ export function renderInventorySummary(command, piPrerequisite, items, exitCode,
     );
   }
 
-  const resultLine = exitCode === 0
-    ? 'Result: ok — exit 0 means the run completed successfully.'
-    : exitCode === 1
-      ? 'Result: partial — exit 1 means the inventory has drift.'
-      : 'Result: failed — exit 2 means a prerequisite or inventory item failed.';
+  const resultLine = interrupted
+    ? renderInterruptedResult(exitCode)
+    : exitCode === 0
+      ? 'Result: ok — exit 0 means the run completed successfully.'
+      : exitCode === 1
+        ? 'Result: partial — exit 1 means the inventory has drift.'
+        : 'Result: failed — exit 2 means a prerequisite or inventory item failed.';
   lines.push(resultLine);
   return `${lines.join('\n')}\n`;
 }
 
-export function renderMinimalSummary(command, piPrerequisite, exitCode) {
+export function renderMinimalSummary(command, piPrerequisite, exitCode, interrupted = false) {
   const version = piPrerequisite.version ?? 'unknown';
   const piLine = piPrerequisite.ok
     ? `  Pi: ok (${piPrerequisite.version})`
-    : `  Pi: failed — ${piPrerequisite.reason}`;
-  const resultLine = exitCode === 0
-    ? 'Result: ok — exit 0 means the run completed successfully.'
-    : 'Result: failed — exit 2 means a prerequisite failed.';
+    : `  Pi: ${piPrerequisite.interrupted ? 'interrupted' : 'failed'} — ${piPrerequisite.reason}`;
+  const resultLine = interrupted
+    ? renderInterruptedResult(exitCode)
+    : exitCode === 0
+      ? 'Result: ok — exit 0 means the run completed successfully.'
+      : 'Result: failed — exit 2 means a prerequisite failed.';
 
-  return `lemonpi ${command} — Pi ${version}\nPrerequisites:\n${piLine}\n${resultLine}\n`;
+  return `lemonpi ${command} — Pi ${version}${interrupted ? ' — interrupted' : ''}\nPrerequisites:\n${piLine}\n${resultLine}\n`;
 }
