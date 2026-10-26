@@ -3,8 +3,9 @@ import { parseArgs } from 'node:util';
 import packageJson from '../package.json' with { type: 'json' };
 import { checkPrerequisites } from './prerequisites.js';
 import { renderExceptionsSummary, renderInventorySummary, renderMinimalSummary } from './summary.js';
+import { packagesPart } from './packages/part.js';
 
-const BUILT_IN_PARTS = Object.freeze([]);
+const BUILT_IN_PARTS = Object.freeze([packagesPart]);
 const COMMANDS = new Set(['install', 'update', 'status', 'doctor', 'skills']);
 const COMMAND_FLAGS = {
   install: ['--dry-run', '--skip', '--skip-skills'],
@@ -165,6 +166,7 @@ export async function run(argv, host, options = {}) {
       command,
       flags,
       dryRun,
+      env: host.env,
       agentDir: host.env.PI_CODING_AGENT_DIR ?? join(host.env.HOME, '.pi', 'agent'),
       cwd: host.cwd,
       tmpdir: host.tmpdir,

@@ -442,16 +442,16 @@ test('inventory color follows TTY and NO_COLOR rules', async (t) => {
   assert.doesNotMatch(noColor.stdout.text, /\u001b\[/);
 });
 
-test('status and doctor without parts retain the Pi-only summary', async (t) => {
+test('status and doctor with an empty parts list retain the Pi-only summary', async (t) => {
   const status = createFakeHost(t, { runnerResults: [passingPi] });
   const doctor = createFakeHost(t, { runnerResults: [passingPi] });
   const missingPi = createFakeHost(t, {
     runnerResults: [{ notFound: true, code: null, signal: null, stdout: '', stderr: '' }],
   });
 
-  await run(['status'], status.host);
-  await run(['doctor'], doctor.host);
-  const missingPiCode = await run(['status'], missingPi.host);
+  await run(['status'], status.host, { parts: [] });
+  await run(['doctor'], doctor.host, { parts: [] });
+  const missingPiCode = await run(['status'], missingPi.host, { parts: [] });
 
   for (const output of [status.stdout.text, doctor.stdout.text]) {
     assert.match(output, /Pi: ok \(1\.4\.0\)/);

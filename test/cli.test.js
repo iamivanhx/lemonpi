@@ -35,7 +35,7 @@ test('run accepts each supported command', async (t) => {
   for (const command of ['install', 'update', 'status', 'doctor', 'skills']) {
     const fake = createFakeHost(t, { runnerResults: [passingPi] });
 
-    const code = await run([command], fake.host);
+    const code = await run([command], fake.host, { parts: [] });
 
     assert.equal(code, 0);
     assert.match(fake.stdout.text, new RegExp(`lemonpi ${command}`));
