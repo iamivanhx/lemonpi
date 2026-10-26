@@ -32,16 +32,21 @@ export function classifyPackages(catalog, globalDeclarations, projectDeclaration
     const declarations = globalDeclarations.filter(({ identity }) => (
       identity === identityOf(entry.source)
     ));
+    const replacedDeclarations = globalDeclarations.filter(({ identity }) => (
+      (entry.replaces ?? []).some((source) => identity === identityOf(source))
+    ));
     const state = skip.includes(entry.id)
       ? 'skipped'
       : declarations.length > 1
         ? 'duplicated'
-        : declarations.length === 1 && declarations[0].pinned
-          ? 'pinned'
-          : declarations.length === 1
-            ? 'ok'
-            : 'missing';
-    return { ...entry, state, declarations };
+        : replacedDeclarations.length > 0
+          ? 'migration-pending'
+          : declarations.length === 1 && declarations[0].pinned
+            ? 'pinned'
+            : declarations.length === 1
+              ? 'ok'
+              : 'missing';
+    return { ...entry, state, declarations, replacedDeclarations };
   });
 
   const notices = [];

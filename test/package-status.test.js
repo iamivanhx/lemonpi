@@ -114,7 +114,9 @@ test('unrelated npm names and local paths do not satisfy managed identities', as
   const code = await run(['status'], fake.host);
 
   assert.equal(code, 1);
-  assert.ok(fake.stdout.text.includes('subagents (npm:@tintinweb/pi-subagents): drift — not installed'));
+  assert.ok(fake.stdout.text.includes(
+    'subagents (npm:@tintinweb/pi-subagents): drift — npm:pi-subagents still declared — `install` migrates it',
+  ));
   assert.ok(fake.stdout.text.includes('review (git:github.com/earendil-works/pi-review): drift — not installed'));
   assert.doesNotMatch(fake.stdout.text, /subagents \(npm:@tintinweb\/pi-subagents\): ok/);
 });
@@ -224,19 +226,24 @@ test('status only probes Pi version and leaves the settings fixture byte-for-byt
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
 });
 
-test('update remains package-free in the install-only ticket', async (t) => {
-  for (const command of ['update']) {
-    const fake = createFakeHost(t);
-    await fake.writeGlobalSettings({ packages: [] });
+test('update runs install reconciliation without package update calls', async (t) => {
+  const fake = createFakeHost(t);
+  await fake.writeGlobalSettings({ packages: [] });
 
-    const code = await run([command], fake.host);
+  const code = await run(['update'], fake.host);
 
-    assert.equal(code, 0, command);
-    for (const { id, source } of managedPackages) {
-      assert.ok(!fake.stdout.text.includes(`${id} (${source})`), `${command} has no ${id} package item`);
-    }
-    assert.deepEqual(fake.runnerCalls.map(({ command: called, args }) => [called, args]), [['pi', ['--version']]]);
+  assert.equal(code, 0);
+  assert.deepEqual(fake.runnerCalls.map(({ command, args, options }) => [command, args, options.cwd]), [
+    ['pi', ['--version'], undefined],
+    ...managedPackages.map(({ source }) => [
+      'pi', ['install', source, '--no-approve'], fake.tmpdir,
+    ]),
+  ]);
+  assert.ok(fake.runnerCalls.every(({ args }) => args[0] !== 'update'));
+  for (const { id, source } of managedPackages) {
+    assert.ok(fake.stdout.text.includes(`${id} (${source}): installed`), `${id} is installed`);
   }
+  assert.deepEqual((await fake.readGlobalSettings()).packages, managedPackages.map(({ source }) => source));
 });
 
 test('skills produces no managed-package inventory items', async (t) => {

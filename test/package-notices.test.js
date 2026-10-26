@@ -61,7 +61,6 @@ test('install renders notices after the ok count without acting on unmanaged pac
     'git:github.com/example/custom-extension',
     './local-package',
     'not-a-package-source',
-    'npm:pi-subagents',
   ];
   await fake.writeGlobalSettings({ packages });
 
@@ -77,7 +76,6 @@ test('install renders notices after the ok count without acting on unmanaged pac
   ]) {
     assert.ok(fake.stdout.text.includes(`- ${source}: unmanaged package`), `${source} is a notice`);
   }
-  assert.doesNotMatch(fake.stdout.text, /npm:pi-subagents: unmanaged package/);
   assert.equal(code, 0);
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [
     ['pi', ['--version']],
@@ -215,7 +213,6 @@ test('status reports unmanaged declarations without changing their settings posi
   const packages = [
     'npm:pi-experiment',
     managedSources[0],
-    'npm:pi-subagents',
     'git:github.com/example/custom-extension',
     managedSources[1],
     './local-package',
@@ -238,7 +235,7 @@ test('status reports unmanaged declarations without changing their settings posi
   ]) {
     assert.ok(fake.stdout.text.includes(`- ${source}: unmanaged package`), `${source} is a notice`);
   }
-  assert.doesNotMatch(fake.stdout.text, /must-not-be-printed|npm:pi-subagents: unmanaged package/);
+  assert.doesNotMatch(fake.stdout.text, /must-not-be-printed/);
   assert.equal(statusCode, 0);
   assert.equal(doctorCode, 0);
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [

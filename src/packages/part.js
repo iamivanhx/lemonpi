@@ -27,8 +27,8 @@ function noticeItems(notices, env) {
   }));
 }
 
-function installFailureReason(source, result, env) {
-  const command = sanitizeDiagnostic(`pi install ${source} --no-approve`, env);
+function commandFailureReason(subcommand, source, result, env) {
+  const command = sanitizeDiagnostic(`pi ${subcommand} ${source} --no-approve`, env);
   const diagnostics = [
     ['stdout', result.stdout],
     ['stderr', result.stderr],
@@ -36,6 +36,145 @@ function installFailureReason(source, result, env) {
   ].filter(([, value]) => typeof value === 'string' && value.trim())
     .map(([label, value]) => `${label}: ${sanitizeDiagnostic(value.trim(), env)}`);
   return [command, ...diagnostics].join('\n');
+}
+
+function installFailureReason(source, result, env) {
+  return commandFailureReason('install', source, result, env);
+}
+
+function commandFailed(result) {
+  return result.notFound || result.error || result.code !== 0;
+}
+
+function migrationFailure(name, required, diagnostics = '', env) {
+  return {
+    name,
+    kind: 'action',
+    outcome: 'failed',
+    reason: sanitizeDiagnostic([
+      'replacement not installed; npm:pi-subagents kept',
+      diagnostics,
+    ].filter(Boolean).join('\n'), env),
+    required,
+  };
+}
+
+async function migrateReplaced(ctx, { id, source, required, declarations, replacedDeclarations }) {
+  const name = itemName(id, source, ctx.env);
+  const needsInstall = declarations.length !== 1 || declarations[0].pinned;
+  let installResult;
+  if (needsInstall) {
+    if (ctx.signal.aborted) return null;
+    installResult = await ctx.runner('pi', ['install', source, '--no-approve'], {
+      cwd: ctx.tmpdir,
+      signal: ctx.signal,
+    });
+    if (commandFailed(installResult)) {
+      return migrationFailure(name, required, installFailureReason(source, installResult, ctx.env), ctx.env);
+    }
+    if (ctx.signal.aborted) {
+      return {
+        name,
+        kind: 'action',
+        outcome: 'changed',
+        reason: sanitizeDiagnostic(
+          'replacement installed; migration interrupted before removing npm:pi-subagents',
+          ctx.env,
+        ),
+        required,
+      };
+    }
+  }
+
+  const afterInstall = await readSettings(ctx);
+  const installedIdentity = identifySource(source)?.identity;
+  const installedDeclarations = afterInstall.ok
+    ? afterInstall.declarations.filter(({ identity }) => identity === installedIdentity)
+    : [];
+  const verified = installedDeclarations.length === 1 && !installedDeclarations[0].pinned;
+  if (!verified) {
+    const installDiagnostics = [
+      installResult ? installFailureReason(source, installResult, ctx.env) : '',
+      afterInstall.ok ? '' : `settings: ${sanitizeDiagnostic(afterInstall.error, ctx.env)}`,
+    ].filter(Boolean).join('\n');
+    return migrationFailure(name, required, installDiagnostics, ctx.env);
+  }
+
+  let afterRemove;
+  let lastRemoval;
+  for (const declaration of replacedDeclarations) {
+    if (ctx.signal.aborted) {
+      return {
+        name,
+        kind: 'action',
+        outcome: 'changed',
+        reason: sanitizeDiagnostic(
+          'replacement verified; migration interrupted before removing npm:pi-subagents',
+          ctx.env,
+        ),
+        required,
+      };
+    }
+    const removeSource = declaration.source;
+    const result = await ctx.runner('pi', ['remove', removeSource, '--no-approve'], {
+      cwd: ctx.tmpdir,
+      signal: ctx.signal,
+    });
+    lastRemoval = { source: removeSource, result };
+    afterRemove = await readSettings(ctx);
+    if (commandFailed(result)) {
+      return {
+        name,
+        kind: 'action',
+        outcome: 'failed',
+        reason: commandFailureReason('remove', removeSource, result, ctx.env),
+        required,
+      };
+    }
+    if (!afterRemove.ok) {
+      return {
+        name,
+        kind: 'action',
+        outcome: 'failed',
+        reason: `${commandFailureReason('remove', removeSource, result, ctx.env)}\nsettings: ${sanitizeDiagnostic(afterRemove.error, ctx.env)}`,
+        required,
+      };
+    }
+    const replacementDeclarations = afterRemove.declarations.filter(({ identity }) => (
+      identity === installedIdentity
+    ));
+    if (replacementDeclarations.length !== 1 || replacementDeclarations[0].pinned) {
+      return {
+        name,
+        kind: 'action',
+        outcome: 'failed',
+        reason: `${commandFailureReason('remove', removeSource, result, ctx.env)}\nreplacement declaration not verified after pi remove`,
+        required,
+      };
+    }
+  }
+
+  const replacedIdentities = new Set(replacedDeclarations.map(({ identity }) => identity));
+  const replacedStillDeclared = afterRemove?.ok && afterRemove.declarations.some(({ identity }) => (
+    replacedIdentities.has(identity)
+  ));
+  if (replacedStillDeclared) {
+    return {
+      name,
+      kind: 'action',
+      outcome: 'failed',
+      reason: `${commandFailureReason('remove', lastRemoval.source, lastRemoval.result, ctx.env)}\nreplaced package still declared after pi remove`,
+      required,
+    };
+  }
+
+  return {
+    name,
+    kind: 'action',
+    outcome: 'changed',
+    reason: sanitizeDiagnostic(`migrated npm:pi-subagents → ${source}`, ctx.env),
+    required,
+  };
 }
 
 async function installMissing(ctx) {
@@ -56,7 +195,7 @@ async function installMissing(ctx) {
   const classification = await classifySettings(ctx, settings.declarations);
   const { packages: classifiedPackages } = classification;
   const items = [];
-  for (const { id, source, required, state, declarations } of classifiedPackages) {
+  for (const { id, source, required, state, declarations, replacedDeclarations } of classifiedPackages) {
     if (ctx.signal.aborted) break;
     const name = itemName(id, source, ctx.env);
     if (state === 'skipped') {
@@ -77,6 +216,28 @@ async function installMissing(ctx) {
         reason: `declared ${declarations.length} times in global settings; remove the extra declarations`,
         required,
       });
+      continue;
+    }
+
+    if (state === 'migration-pending') {
+      if (ctx.dryRun) {
+        items.push({
+          name,
+          kind: 'action',
+          outcome: 'changed',
+          reason: sanitizeDiagnostic(`would migrate npm:pi-subagents → ${source}`, ctx.env),
+          required,
+        });
+      } else {
+        const item = await migrateReplaced(ctx, {
+          id,
+          source,
+          required,
+          declarations,
+          replacedDeclarations,
+        });
+        if (item) items.push(item);
+      }
       continue;
     }
 
@@ -111,7 +272,7 @@ async function installMissing(ctx) {
     const nowDeclared = pinned
       ? afterDeclarations.length === 1 && !afterDeclarations[0].pinned
       : afterDeclarations.length > 0;
-    if (result.notFound || result.error || result.code !== 0) {
+    if (commandFailed(result)) {
       items.push({
         name,
         kind: 'action',
@@ -152,7 +313,7 @@ export const packagesPart = Object.freeze({
   commands: Object.freeze(['install', 'update', 'status', 'doctor']),
   async run(ctx) {
     if (ctx.command === 'install') return installMissing(ctx);
-    if (ctx.command === 'update') return [];
+    if (ctx.command === 'update') return installMissing(ctx);
 
     const settings = await readSettings(ctx);
     if (!settings.ok) {
@@ -177,7 +338,7 @@ export const packagesPart = Object.freeze({
     }
 
     const classification = await classifySettings(ctx, settings.declarations);
-    const packageItems = classification.packages.map(({ id, source, state, declarations }) => {
+    const packageItems = classification.packages.map(({ id, source, state, declarations, replaces }) => {
       const name = itemName(id, source, ctx.env);
       if (state === 'skipped') {
         return {
@@ -202,6 +363,17 @@ export const packagesPart = Object.freeze({
           outcome: 'drift',
           reason: sanitizeDiagnostic(
             `pinned to ${declarations[0].pin} — ` + '`install` unpins it',
+            ctx.env,
+          ),
+        };
+      }
+      if (state === 'migration-pending') {
+        return {
+          name,
+          kind: 'inventory',
+          outcome: 'drift',
+          reason: sanitizeDiagnostic(
+            `${replaces[0]} still declared — ` + '`install` migrates it',
             ctx.env,
           ),
         };
