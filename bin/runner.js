@@ -21,10 +21,21 @@ export function runner(command, args = [], options = {}) {
     let timeoutTimer;
     let escalationTimer;
     let resolved = false;
+    let terminating = false;
+
+    const killGroup = (signal) => {
+      try {
+        process.kill(-child.pid, signal);
+      } catch (error) {
+        // The group may already have exited between lifecycle events and signalling.
+        if (error.code !== 'ESRCH') throw error;
+      }
+    };
 
     const finish = (result) => {
       if (resolved) return;
       resolved = true;
+      if (terminating) killGroup('SIGKILL');
       clearTimeout(timeoutTimer);
       clearTimeout(escalationTimer);
       options.signal?.removeEventListener('abort', onAbort);
@@ -32,12 +43,18 @@ export function runner(command, args = [], options = {}) {
     };
 
     const terminate = () => {
-      if (!child || child.exitCode !== null || child.signalCode !== null) return;
-      if (!child.kill('SIGTERM')) return;
+      if (!child?.pid || terminating || resolved) return;
+      terminating = true;
+      killGroup('SIGTERM');
       escalationTimer = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        killGroup('SIGKILL');
+        escalationTimer = setTimeout(() => {
+          // Even an escaped descendant holding inherited pipes cannot block shutdown.
+          child.stdout.destroy();
+          child.stderr.destroy();
+          finish({ code: child.exitCode, signal: child.signalCode, stdout, stderr });
+        }, TERMINATION_GRACE_MS);
       }, TERMINATION_GRACE_MS);
-      escalationTimer.unref?.();
     };
 
     const onAbort = () => terminate();
@@ -57,8 +74,10 @@ export function runner(command, args = [], options = {}) {
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
+        detached: true,
       });
     } catch (error) {
+      // Synchronous spawn failures cross the same result boundary as the error event.
       finish(errorResult(error));
       return;
     }

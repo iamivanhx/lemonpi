@@ -187,10 +187,35 @@ test('run rejects --skip when it has no value', async (t) => {
   const code = await run(['install', '--skip'], fake.host);
 
   assert.equal(code, 2);
-  assert.match(fake.stderr.text, /missing value for --skip/);
+  assert.match(fake.stderr.text, /--skip/);
+  assert.match(fake.stderr.text, /missing/i);
   assert.match(fake.stderr.text, /lemonpi --help/);
   assert.equal(fake.stderr.text.trimEnd().split('\n').length, 1);
   assert.equal(fake.stdout.text, '');
+});
+
+test('run rejects ambiguous and boolean option values as usage errors', async (t) => {
+  for (const args of [['install', '--skip', '--dry-run'], ['install', '--dry-run=value']]) {
+    const fake = createFakeHost(t);
+
+    const code = await run(args, fake.host);
+
+    assert.equal(code, 2);
+    assert.match(fake.stderr.text, /lemonpi --help/);
+    assert.equal(fake.stderr.text.trimEnd().split('\n').length, 1);
+    assert.equal(fake.stdout.text, '');
+    assert.deepEqual(fake.runnerCalls, []);
+  }
+});
+
+test('run rethrows unexpected parser failures rather than translating programming errors', async (t) => {
+  const fake = createFakeHost(t);
+
+  await assert.rejects(run([null], fake.host), TypeError);
+
+  assert.equal(fake.stdout.text, '');
+  assert.equal(fake.stderr.text, '');
+  assert.deepEqual(fake.runnerCalls, []);
 });
 
 test('run rejects extra positional arguments', async (t) => {
@@ -286,7 +311,8 @@ test('Pi failure diagnostics retain useful details without leaking sensitive val
   }
 });
 
-test('Pi diagnostics withhold complete multiline private-key blocks but retain adjacent lines', async (t) => {
+for (const keyType of ['PRIVATE KEY', 'RSA PRIVATE KEY', 'PGP PRIVATE KEY BLOCK']) {
+test(`Pi diagnostics withhold complete multiline ${keyType} blocks but retain adjacent lines`, async (t) => {
   const keyBody = 'MIIEfixtureCompletePrivateKeyBodyNotARealSecret';
   const fake = createFakeHost(t, {
     runnerResults: [{
@@ -295,9 +321,9 @@ test('Pi diagnostics withhold complete multiline private-key blocks but retain a
       stdout: 'stdout diagnostic remains',
       stderr: [
         'harmless diagnostic before key',
-        '-----BEGIN PRIVATE KEY-----',
+        `-----BEGIN ${keyType}-----`,
         keyBody,
-        '-----END PRIVATE KEY-----',
+        `-----END ${keyType}-----`,
         'harmless diagnostic after key',
       ].join('\n'),
     }],
@@ -312,7 +338,7 @@ test('Pi diagnostics withhold complete multiline private-key blocks but retain a
   assert.match(output, /harmless diagnostic after key/);
 });
 
-test('Pi diagnostics withhold a truncated private-key block through end of output', async (t) => {
+test(`Pi diagnostics withhold a truncated ${keyType} block through end of output`, async (t) => {
   const keyBody = ['MIIEfixtureTruncatedPrivateKeyBody', 'secondBase64LineMustNotLeak'];
   const truncatedTail = 'diagnostic-looking tail is part of the incomplete key';
   const fake = createFakeHost(t, {
@@ -322,7 +348,7 @@ test('Pi diagnostics withhold a truncated private-key block through end of outpu
       stdout: '',
       stderr: [
         'harmless diagnostic before truncated key',
-        '-----BEGIN RSA PRIVATE KEY-----',
+        `-----BEGIN ${keyType}-----`,
         ...keyBody,
         truncatedTail,
       ].join('\n'),
@@ -338,6 +364,8 @@ test('Pi diagnostics withhold a truncated private-key block through end of outpu
   assert.doesNotMatch(output, /diagnostic-looking tail is part of the incomplete key/);
   assert.match(output, /\[diagnostic withheld\]/);
 });
+
+}
 
 test('Pi diagnostics redact quoted organization ID fields with UUID values', async (t) => {
   const organizationIds = [
@@ -389,6 +417,33 @@ test('Pi diagnostics redact JSON access and refresh token fields', async (t) => 
   assert.match(output, /stdout diagnostic after/);
   assert.match(output, /stderr diagnostic before/);
   assert.match(output, /stderr diagnostic after/);
+});
+
+test('Pi diagnostics withhold full ambiguous credential values in every runner stream', async (t) => {
+  const cases = [
+    ['password=correct horse battery staple', ['correct', 'horse', 'battery', 'staple']],
+    ['credentials={"user":"fixture-login","value":"fixture-object-secret"}', ['fixture-login', 'fixture-object-secret']],
+    ['access_token=["fixture-array-first", "fixture-array-second"]', ['fixture-array-first', 'fixture-array-second']],
+    ['password=\n  fixture-multiline-first\n  fixture-multiline-second', ['fixture-multiline-first', 'fixture-multiline-second']],
+    ['credentials:\n  user: fixture-yaml-login\n  value: fixture-yaml-secret', ['fixture-yaml-login', 'fixture-yaml-secret']],
+  ];
+  for (const stream of ['stdout', 'stderr', 'error']) {
+    for (const [diagnostic, fragments] of cases) {
+      const fake = createFakeHost(t, {
+        runnerResults: [{ code: 13, signal: null, stdout: '', stderr: '', [stream]: `harmless diagnostic before credential\n${diagnostic}` }],
+      });
+
+      const code = await run(['install'], fake.host);
+      const output = `${fake.stdout.text}${fake.stderr.text}`;
+
+      assert.equal(code, 2);
+      assert.match(output, /harmless diagnostic before credential/);
+      assert.match(output, /\[diagnostic withheld\]/);
+      for (const fragment of fragments) {
+        assert.ok(!output.includes(fragment), `${stream} must not disclose ${fragment}`);
+      }
+    }
+  }
 });
 
 test('Pi diagnostics redact multiline quoted password values and keep surrounding diagnostics', async (t) => {

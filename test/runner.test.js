@@ -52,6 +52,29 @@ test('runner terminates a child when its abort signal fires', { timeout: 3000 },
   assert.equal(result.signal, 'SIGTERM');
 });
 
+test('runner bounds shutdown when an escaped descendant retains output pipes', { timeout: 4000 }, async () => {
+  const result = await runner(process.execPath, ['-e', `
+    const child = require('node:child_process').spawn(process.execPath, [
+      '-e', 'process.stdout.write("escaped-ready"); setInterval(() => {}, 1000)',
+    ], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] });
+    process.stdout.write(String(child.pid) + '\\n');
+    child.unref();
+  `], { timeout: 1000 });
+
+  const descendantPid = Number(result.stdout.split('\n')[0]);
+  try {
+    assert.match(result.stdout, /escaped-ready/);
+    assert.equal(result.code, 0);
+  } finally {
+    try {
+      process.kill(descendantPid, 'SIGKILL');
+    } catch (error) {
+      // Cleanup may race with descendant exit; other signal errors must fail the test.
+      if (error.code !== 'ESRCH') throw error;
+    }
+  }
+});
+
 test('runner retains the error name and code for a non-executable command', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'lemonpi-runner-'));
   const executable = join(directory, 'not-executable');

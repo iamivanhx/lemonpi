@@ -20,11 +20,34 @@ test('real bin prints version and help without Pi', () => {
   assert.match(help.stdout, /Exit codes:/);
 });
 
-test('bin handles SIGINT with a fake Pi and renders the interrupted summary', { timeout: 10000 }, async (t) => {
+test('bin refuses Node 20.9.0 before loading unsupported CLI syntax', {
+  skip: !process.env.LEMONPI_TEST_OLD_NODE && 'set LEMONPI_TEST_OLD_NODE to a Node 20.9.0 executable',
+}, () => {
+  const result = spawnSync(process.env.LEMONPI_TEST_OLD_NODE, [bin, 'install'], { encoding: 'utf8' });
+
+  assert.equal(result.status, 2, result.stderr);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /^Node 20\.9\.0 is not supported; lemonpi requires Node 22\.19\.0 or newer\n$/);
+});
+
+for (const [interruptSignal, expectedCode, descendant] of [
+  ['SIGINT', 130, false],
+  ['SIGTERM', 143, true],
+]) {
+test(`bin handles ${interruptSignal}${descendant ? ' with inherited descendant pipes' : ''} and renders the interrupted summary`, { timeout: 10000 }, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'lemonpi-bin-interruption-'));
   const fakePi = join(directory, 'pi');
   const readyMarker = join(directory, 'pi-ready');
-  await writeFile(fakePi, '#!/bin/sh\nexec "$LEMONPI_TEST_NODE" -e \'require("node:fs").writeFileSync(process.env.LEMONPI_READY_MARKER, "ready"); setInterval(() => {}, 1000)\'\n');
+  const probe = join(directory, 'probe.cjs');
+  const descendantCode = `
+    process.on('SIGTERM', () => {});
+    require('node:fs').writeFileSync(process.env.LEMONPI_READY_MARKER, String(process.ppid));
+    setInterval(() => {}, 1000);
+  `;
+  await writeFile(probe, descendant
+    ? `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendantCode)}], { stdio: 'inherit' });`
+    : 'require("node:fs").writeFileSync(process.env.LEMONPI_READY_MARKER, String(process.pid)); setInterval(() => {}, 1000)');
+  await writeFile(fakePi, `#!/bin/sh\nexec "$LEMONPI_TEST_NODE" "${probe}"\n`);
   await chmod(fakePi, 0o755);
   t.after(() => rm(directory, { recursive: true, force: true }));
 
@@ -47,11 +70,12 @@ test('bin handles SIGINT with a fake Pi and renders the interrupted summary', { 
     child.once('exit', (code, signal) => resolve({ code, signal }));
   });
 
+  let probePid;
   try {
     const deadline = Date.now() + 5000;
     while (true) {
       try {
-        await readFile(readyMarker, 'utf8');
+        probePid = Number(await readFile(readyMarker, 'utf8'));
         break;
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
@@ -60,13 +84,26 @@ test('bin handles SIGINT with a fake Pi and renders the interrupted summary', { 
       }
     }
 
-    child.kill('SIGINT');
-    const { code, signal } = await exited;
-    assert.equal(code, 130, `bin exit was code=${code}, signal=${signal}; stderr=${stderr}`);
+    child.kill(interruptSignal);
+    let deadlineTimer;
+    const result = await Promise.race([
+      exited,
+      new Promise((resolve) => { deadlineTimer = setTimeout(() => resolve(null), 2000); }),
+    ]);
+    clearTimeout(deadlineTimer);
+    assert.ok(result, 'bin must exit promptly even when descendants inherit its pipes');
+    const { code, signal } = result;
+    assert.equal(code, expectedCode, `bin exit was code=${code}, signal=${signal}; stderr=${stderr}`);
     assert.match(stdout, /interrupted/i);
   } finally {
-    try {
-      process.kill(-child.pid, 'SIGKILL');
-    } catch {}
+    for (const pid of [probePid, child.pid].filter(Boolean)) {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch (error) {
+        // Cleanup races with normal process exit; only an absent group is harmless.
+        if (error.code !== 'ESRCH') throw error;
+      }
+    }
   }
 });
+}

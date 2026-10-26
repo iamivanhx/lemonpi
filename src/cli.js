@@ -75,14 +75,16 @@ function usageError(host, message) {
 }
 
 function parseErrorMessage(error) {
-  const unknownOption = /^Unknown option '([^']+)'/.exec(error.message);
-  if (unknownOption) return `unknown option '${unknownOption[1]}'`;
-
-  const missingValue = /^Option '([^']+)' argument missing/.exec(error.message);
-  if (missingValue) return `missing value for ${missingValue[1].split(' ')[0]}`;
-
-  const firstLine = error.message.split('\n', 1)[0].replace(/\.$/, '');
-  return `invalid arguments: ${firstLine}`;
+  switch (error.code) {
+    case 'ERR_PARSE_ARGS_UNKNOWN_OPTION':
+    case 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE': {
+      // Node's text is only displayed, never used to identify the failure.
+      const firstLine = error.message.split('\n', 1)[0].replace(/\.$/, '');
+      return firstLine.charAt(0).toLowerCase() + firstLine.slice(1);
+    }
+    default:
+      throw error;
+  }
 }
 
 export async function run(argv, host, options = {}) {
@@ -102,6 +104,8 @@ export async function run(argv, host, options = {}) {
   try {
     parsed = parseArgs({ args: argv, options: ARGUMENT_OPTIONS, strict: true, allowPositionals: true });
   } catch (error) {
+    // Translate only known user-input errors at the argv boundary; unexpected
+    // failures (including invalid parser inputs/configuration) are rethrown.
     return usageError(host, parseErrorMessage(error));
   }
 
@@ -172,6 +176,8 @@ export async function run(argv, host, options = {}) {
         try {
           items.push(...await part.run(context));
         } catch {
+          // A part is a run boundary: report failure and continue other parts.
+          // Do not echo thrown messages, which may contain credential material.
           const action = ['install', 'update', 'skills'].includes(command);
           items.push({
             name: part.name,

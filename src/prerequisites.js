@@ -12,25 +12,14 @@ function sanitizeDiagnostic(value, env = {}) {
     .sort((left, right) => right.length - left.length);
 
   let diagnostic = String(value)
-    .replace(/-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|$)/gi, DIAGNOSTIC_WITHHELD);
+    .replace(/-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----[\s\S]*?(?:-----END \1-----|$)/gi, DIAGNOSTIC_WITHHELD);
   for (const secret of secrets) diagnostic = diagnostic.split(secret).join('[redacted]');
-  diagnostic = diagnostic
-    .replace(
-      /(["']?(?:organization|org)(?:[_\s-]*id)["']?\s*[:=]\s*)(["'])(?:\\[\s\S]|(?!\2)[\s\S])*\s*$/gi,
-      '$1[diagnostic withheld]',
-    )
-    .replace(
-      /(["']?[A-Za-z0-9._-]*(?:credential|token|password|secret|api[\s_-]?key|auth(?:orization)?)[A-Za-z0-9._-]*["']?\s*[:=]\s*)(["'])(?:\\[\s\S]|(?!\2)[\s\S])*\s*$/gi,
-      '$1[diagnostic withheld]',
-    )
-    .replace(
-      /(["']?(?:organization|org)(?:[_\s-]*id)["']?\s*[:=]\s*)(?!\[diagnostic withheld\])(?:"[\s\S]*?"|'[\s\S]*?'|[^\s,;]+)/gi,
-      '$1[redacted]',
-    )
-    .replace(
-      /(["']?[A-Za-z0-9._-]*(?:credential|token|password|secret|api[\s_-]?key|auth(?:orization)?)[A-Za-z0-9._-]*["']?\s*[:=]\s*)(?!\[diagnostic withheld\])(?:"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;]+)/gi,
-      '$1[redacted]',
-    );
+  diagnostic = diagnostic.replace(
+    /(["']?(?:(?:organization|org)[_\s-]*id|[A-Za-z0-9._-]*(?:credential|token|password|secret|api[\s_-]?key|auth(?:orization)?)[A-Za-z0-9._-]*)["']?\s*[:=]\s*)(?:("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')|[\s\S]*)/gi,
+    // Only a complete quoted scalar has a reliable end. For unquoted, structured,
+    // or truncated values, withhold the rest rather than guessing a delimiter.
+    (_match, field, quotedValue) => `${field}${quotedValue === undefined ? DIAGNOSTIC_WITHHELD : '[redacted]'}`,
+  );
 
   return diagnostic.split(/\r?\n/).map((originalLine) => {
     if (/\bprivate key\b|-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/i.test(originalLine)) {
@@ -105,18 +94,27 @@ function failedPi(reason, version = null) {
   return { ok: false, type: 'pi', pi: { ok: false, version, reason } };
 }
 
-export async function checkPrerequisites(host) {
-  if (host.platform !== 'darwin' && host.platform !== 'linux') {
-    return refuse(PLATFORM_REFUSAL);
-  }
-
-  const foundNodeVersion = String(host.nodeVersion).trim();
+// Keep this module syntax-compatible with older Node releases: the bin loads
+// this guard before importing the CLI and its supported-runtime-only syntax.
+export function checkNodeVersion(value) {
+  const foundNodeVersion = String(value).trim();
   const nodeVersion = parseVersion(foundNodeVersion);
   const requiredNodeVersion = parseVersion(REQUIRED_NODE_VERSION);
   if (!nodeVersion || compareVersions(nodeVersion, requiredNodeVersion) < 0) {
     const printableVersion = foundNodeVersion.replace(/^v/, '') || 'unknown';
     return refuse(`Node ${printableVersion} is not supported; lemonpi requires Node ${REQUIRED_NODE_VERSION} or newer`);
   }
+
+  return { ok: true };
+}
+
+export async function checkPrerequisites(host) {
+  if (host.platform !== 'darwin' && host.platform !== 'linux') {
+    return refuse(PLATFORM_REFUSAL);
+  }
+
+  const nodeVersion = checkNodeVersion(host.nodeVersion);
+  if (!nodeVersion.ok) return nodeVersion;
 
   const result = await host.runner('pi', ['--version'], { signal: host.signal });
   if (result.notFound) {
