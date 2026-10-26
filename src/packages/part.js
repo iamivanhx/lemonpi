@@ -42,6 +42,32 @@ function installFailureReason(source, result, env) {
   return commandFailureReason('install', source, result, env);
 }
 
+async function updatePackage(ctx, item, source) {
+  if (ctx.command !== 'update') return item;
+  if (ctx.dryRun) {
+    return {
+      ...item,
+      outcome: 'changed',
+      reason: item.outcome === 'changed' ? `${item.reason}; would update` : 'would update',
+    };
+  }
+  if (ctx.signal.aborted) return item;
+
+  const result = await ctx.runner('pi', ['update', source, '--no-approve'], {
+    cwd: ctx.tmpdir,
+    signal: ctx.signal,
+  });
+  await readSettings(ctx);
+  if (commandFailed(result)) {
+    return {
+      ...item,
+      outcome: 'failed',
+      reason: commandFailureReason('update', source, result, ctx.env),
+    };
+  }
+  return item;
+}
+
 function commandFailed(result) {
   return result.notFound || result.error || result.code !== 0;
 }
@@ -221,13 +247,13 @@ async function installMissing(ctx) {
 
     if (state === 'migration-pending') {
       if (ctx.dryRun) {
-        items.push({
+        items.push(await updatePackage(ctx, {
           name,
           kind: 'action',
           outcome: 'changed',
           reason: sanitizeDiagnostic(`would migrate npm:pi-subagents → ${source}`, ctx.env),
           required,
-        });
+        }, source));
       } else {
         const item = await migrateReplaced(ctx, {
           id,
@@ -236,7 +262,7 @@ async function installMissing(ctx) {
           declarations,
           replacedDeclarations,
         });
-        if (item) items.push(item);
+        if (item) items.push(item.outcome === 'changed' ? await updatePackage(ctx, item, source) : item);
       }
       continue;
     }
@@ -244,12 +270,12 @@ async function installMissing(ctx) {
     const identity = identifySource(source)?.identity;
     const pinned = state === 'pinned';
     if (state === 'ok') {
-      items.push({ name, kind: 'action', outcome: 'ok', required });
+      items.push(await updatePackage(ctx, { name, kind: 'action', outcome: 'ok', required }, source));
       continue;
     }
 
     if (ctx.dryRun) {
-      items.push({
+      items.push(await updatePackage(ctx, {
         name,
         kind: 'action',
         outcome: 'changed',
@@ -257,7 +283,7 @@ async function installMissing(ctx) {
           ? sanitizeDiagnostic(`would unpin ${declarations[0].pin} → ${source}`, ctx.env)
           : 'would install',
         required,
-      });
+      }, source));
       continue;
     }
 
@@ -295,7 +321,7 @@ async function installMissing(ctx) {
       continue;
     }
 
-    items.push({
+    items.push(await updatePackage(ctx, {
       name,
       kind: 'action',
       outcome: 'changed',
@@ -303,7 +329,7 @@ async function installMissing(ctx) {
         ? sanitizeDiagnostic(`unpinned ${declarations[0].pin} → ${source}`, ctx.env)
         : 'installed',
       required,
-    });
+    }, source));
   }
   return [...items, ...noticeItems(classification.notices, ctx.env)];
 }

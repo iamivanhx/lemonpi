@@ -226,9 +226,10 @@ test('status only probes Pi version and leaves the settings fixture byte-for-byt
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
 });
 
-test('update runs install reconciliation without package update calls', async (t) => {
+test('update pulls every configured managed package one at a time in catalog order', async (t) => {
   const fake = createFakeHost(t);
-  await fake.writeGlobalSettings({ packages: [] });
+  const packages = managedPackages.map(({ source }) => source);
+  await fake.writeGlobalSettings({ packages });
 
   const code = await run(['update'], fake.host);
 
@@ -236,14 +237,12 @@ test('update runs install reconciliation without package update calls', async (t
   assert.deepEqual(fake.runnerCalls.map(({ command, args, options }) => [command, args, options.cwd]), [
     ['pi', ['--version'], undefined],
     ...managedPackages.map(({ source }) => [
-      'pi', ['install', source, '--no-approve'], fake.tmpdir,
+      'pi', ['update', source, '--no-approve'], fake.tmpdir,
     ]),
   ]);
-  assert.ok(fake.runnerCalls.every(({ args }) => args[0] !== 'update'));
-  for (const { id, source } of managedPackages) {
-    assert.ok(fake.stdout.text.includes(`${id} (${source}): installed`), `${id} is installed`);
-  }
-  assert.deepEqual((await fake.readGlobalSettings()).packages, managedPackages.map(({ source }) => source));
+  assert.ok(fake.runnerCalls.every(({ args }) => args[0] !== 'install'));
+  assert.match(fake.stdout.text, /OK: 8 items/);
+  assert.deepEqual((await fake.readGlobalSettings()).packages, packages);
 });
 
 test('skills produces no managed-package inventory items', async (t) => {

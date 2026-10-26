@@ -262,9 +262,12 @@ test('duplicate replacement declarations outrank migration for status, install, 
 
     assert.equal(code, 2, `${command} fails the required duplicate`);
     assert.ok(fake.stdout.text.includes(duplicateFailure), `${command} reports duplicate drift`);
-    assert.deepEqual(fake.runnerCalls.map(({ command: called, args }) => [called, args]), [
-      ['pi', ['--version']],
-    ], `${command} does not call Pi for the duplicate`);
+    const packageCalls = fake.runnerCalls.slice(1);
+    assert.ok(packageCalls.every(({ args }) => args[1] !== replacementSource),
+      `${command} does not call Pi for the duplicate`);
+    assert.deepEqual(packageCalls.map(({ args }) => args), command === 'update'
+      ? managedSources.slice(1).map((source) => ['update', source, '--no-approve'])
+      : []);
     assert.deepEqual((await fake.readGlobalSettings()).packages, packages);
   }
 });
@@ -281,14 +284,16 @@ test('skip overrides duplicate replacement declarations and migration', async (t
     assert.ok(fake.stdout.text.includes(
       `subagents (${replacementSource}): held back by --skip`,
     ));
-    assert.deepEqual(fake.runnerCalls.map(({ command: called, args }) => [called, args]), [
-      ['pi', ['--version']],
-    ]);
+    const packageCalls = fake.runnerCalls.slice(1);
+    assert.ok(packageCalls.every(({ args }) => args[1] !== replacementSource));
+    assert.deepEqual(packageCalls.map(({ args }) => args), command === 'update'
+      ? managedSources.slice(1).map((source) => ['update', source, '--no-approve'])
+      : []);
     assert.deepEqual((await fake.readGlobalSettings()).packages, packages);
   }
 });
 
-test('update runs install reconciliation for migration without Pi update calls', async (t) => {
+test('update migrates then updates subagents before later catalog packages', async (t) => {
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({ packages: configuredWithReplaced });
 
@@ -299,8 +304,10 @@ test('update runs install reconciliation for migration without Pi update calls',
     ['pi', ['--version'], undefined],
     ['pi', ['install', replacementSource, '--no-approve'], fake.tmpdir],
     ['pi', ['remove', replacedSource, '--no-approve'], fake.tmpdir],
+    ...managedSources.map((source) => [
+      'pi', ['update', source, '--no-approve'], fake.tmpdir,
+    ]),
   ]);
-  assert.ok(fake.runnerCalls.every(({ args }) => args[0] !== 'update'));
   assert.deepEqual((await fake.readGlobalSettings()).packages, [
     ...managedSources.slice(1),
     replacementSource,
