@@ -1,7 +1,8 @@
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import packageJson from '../package.json' with { type: 'json' };
 import { checkPrerequisites } from './prerequisites.js';
-import { renderMinimalSummary } from './summary.js';
+import { renderExceptionsSummary, renderMinimalSummary } from './summary.js';
 
 const BUILT_IN_PARTS = Object.freeze([]);
 const COMMANDS = new Set(['install', 'update', 'status', 'doctor', 'skills']);
@@ -43,9 +44,30 @@ Exit codes:
   143  interrupted by SIGTERM
 `;
 
+function exitCodeFor(items, dryRun = false) {
+  const failedPrerequisiteOrUsage = items.some((item) => (
+    item.kind === 'usage' || (item.kind === 'prerequisite' && item.outcome === 'failed')
+  ));
+  if (failedPrerequisiteOrUsage) return 2;
+  if (dryRun) return 0;
+
+  const failedRequiredActionOrInventory = items.some((item) => (
+    (item.kind === 'action' && item.outcome === 'failed' && item.required === true)
+    || (item.kind === 'inventory' && item.outcome === 'failed')
+  ));
+  if (failedRequiredActionOrInventory) return 2;
+
+  const failedOptionalActionOrDrift = items.some((item) => (
+    (item.kind === 'action' && item.outcome === 'failed' && item.required === false)
+    || (item.kind === 'inventory' && item.outcome === 'drift')
+  ));
+  if (failedOptionalActionOrDrift) return 1;
+  return 0;
+}
+
 function usageError(host, message) {
   host.stderr.write(`lemonpi: ${message}; run \`lemonpi --help\` for usage\n`);
-  return 2;
+  return exitCodeFor([{ kind: 'usage', outcome: 'invalid' }]);
 }
 
 function parseErrorMessage(error) {
@@ -61,7 +83,6 @@ function parseErrorMessage(error) {
 
 export async function run(argv, host, options = {}) {
   const parts = options.parts ?? BUILT_IN_PARTS;
-  void parts;
 
   if (argv.includes('--help') || argv.includes('-h')) {
     host.stdout.write(USAGE);
@@ -103,19 +124,47 @@ export async function run(argv, host, options = {}) {
   }
 
   const flags = {
-    dryRun: parsed.values['dry-run'] ?? false,
     skip: parsed.values.skip === undefined ? [] : parsed.values.skip.split(','),
     skipSkills: parsed.values['skip-skills'] ?? false,
   };
-  void flags;
+  const dryRun = parsed.values['dry-run'] ?? false;
 
   const prerequisites = await checkPrerequisites(host);
   if (!prerequisites.ok && prerequisites.type === 'refusal') {
     host.stderr.write(`${prerequisites.message}\n`);
-    return 2;
+    return exitCodeFor([{ kind: 'prerequisite', outcome: 'failed' }]);
   }
 
-  const exitCode = prerequisites.ok ? 0 : 2;
-  host.stdout.write(renderMinimalSummary(command, prerequisites.pi, exitCode));
+  const items = prerequisites.ok
+    ? []
+    : [{ name: 'Pi', kind: 'prerequisite', outcome: 'failed', reason: prerequisites.pi.reason }];
+  if (prerequisites.ok) {
+    const context = {
+      command,
+      flags,
+      dryRun,
+      agentDir: host.env.PI_CODING_AGENT_DIR ?? join(host.env.HOME, '.pi', 'agent'),
+      piVersion: prerequisites.pi.version,
+      runner: host.runner,
+      signal: host.signal,
+    };
+    for (const part of parts) {
+      if (part.commands.includes(command)) {
+        items.push(...await part.run(context));
+      }
+    }
+  }
+
+  const exitCode = exitCodeFor(items, dryRun);
+  const summary = ['install', 'update', 'skills'].includes(command)
+    ? renderExceptionsSummary(
+      command,
+      prerequisites.pi,
+      items,
+      exitCode,
+      host.stdout.isTTY === true && host.env.NO_COLOR === undefined,
+    )
+    : renderMinimalSummary(command, prerequisites.pi, exitCode);
+  host.stdout.write(summary);
   return exitCode;
 }
