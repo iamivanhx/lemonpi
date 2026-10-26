@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { access, symlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
 import { run } from '../src/cli.js';
@@ -260,6 +262,37 @@ test('parts receive parsed context and the injected agent directory', async (t) 
       signal: fallback.host.signal,
     },
   ]);
+});
+
+test('parts receive cwd, tmpdir, and readFile for project files', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  let context;
+  const part = {
+    name: 'probe',
+    commands: ['install'],
+    run: async (ctx) => {
+      context = ctx;
+      return [];
+    },
+  };
+
+  await run(['install'], fake.host, { parts: [part] });
+
+  const target = join(fake.cwd, 'target.txt');
+  const link = join(fake.cwd, 'linked.txt');
+  await writeFile(target, 'project file contents');
+  await symlink(target, link);
+
+  assert.equal(typeof fake.host.cwd, 'string');
+  assert.equal(typeof fake.host.tmpdir, 'string');
+  await access(fake.host.cwd);
+  await access(fake.host.tmpdir);
+  assert.equal(context.cwd, fake.host.cwd);
+  assert.equal(context.tmpdir, fake.host.tmpdir);
+  assert.equal(typeof context.readFile, 'function');
+  assert.equal(await context.readFile(target), 'project file contents');
+  assert.deepEqual(await context.readFile(join(fake.cwd, 'missing.txt')), { notFound: true });
+  assert.equal(await context.readFile(link), 'project file contents');
 });
 
 test('status lists every inventory item exactly once with its outcome', async (t) => {
