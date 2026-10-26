@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { homedir } from 'node:os';
 import { run } from '../src/cli.js';
+import { runner } from './runner.js';
 
 const env = { ...process.env };
 if (!env.HOME) env.HOME = homedir();
@@ -12,7 +13,7 @@ const host = {
   stdout: process.stdout,
   stderr: process.stderr,
   stdin: process.stdin,
-  runner: async () => ({ code: 0, signal: null, stdout: '', stderr: '' }),
+  runner,
   signal: new AbortController().signal,
 };
 

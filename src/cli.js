@@ -1,5 +1,7 @@
 import { parseArgs } from 'node:util';
 import packageJson from '../package.json' with { type: 'json' };
+import { checkPrerequisites } from './prerequisites.js';
+import { renderMinimalSummary } from './summary.js';
 
 const BUILT_IN_PARTS = Object.freeze([]);
 const COMMANDS = new Set(['install', 'update', 'status', 'doctor', 'skills']);
@@ -107,6 +109,13 @@ export async function run(argv, host, options = {}) {
   };
   void flags;
 
-  host.stdout.write(`lemonpi ${command}: not yet implemented\n`);
-  return 0;
+  const prerequisites = await checkPrerequisites(host);
+  if (!prerequisites.ok && prerequisites.type === 'refusal') {
+    host.stderr.write(`${prerequisites.message}\n`);
+    return 2;
+  }
+
+  const exitCode = prerequisites.ok ? 0 : 2;
+  host.stdout.write(renderMinimalSummary(command, prerequisites.pi, exitCode));
+  return exitCode;
 }
