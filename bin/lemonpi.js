@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { homedir } from 'node:os';
+import { readFile as readFileFromFs } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { checkNodeVersion } from '../src/prerequisites.js';
 import { runner } from './runner.js';
 
@@ -25,6 +26,16 @@ if (!runtime.ok) {
     stdin: process.stdin,
     runner,
     signal: abortController.signal,
+    cwd: process.cwd(),
+    tmpdir: tmpdir(),
+    readFile: async (path) => {
+      try {
+        return await readFileFromFs(path, 'utf8');
+      } catch (error) {
+        if (error.code === 'ENOENT') return { notFound: true };
+        throw error;
+      }
+    },
   };
 
   process.exitCode = await run(process.argv.slice(2), host);

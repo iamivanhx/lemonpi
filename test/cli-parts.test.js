@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { access, symlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
 import { run } from '../src/cli.js';
@@ -235,7 +237,7 @@ test('parts receive parsed context and the injected agent directory', async (t) 
   const fallback = createFakeHost(t, { runnerResults: [passingPi] });
   delete fallback.host.env.PI_CODING_AGENT_DIR;
 
-  await run(['install', '--skip', 'one,two', '--skip-skills', '--dry-run'], configured.host, { parts: [part] });
+  await run(['install', '--skip', 'todo,pretty', '--skip-skills', '--dry-run'], configured.host, { parts: [part] });
   await run(['install'], fallback.host, { parts: [part] });
 
   assert.deepEqual(contexts.map(({ command, flags, dryRun, agentDir, piVersion, runner, signal }) => ({
@@ -243,7 +245,7 @@ test('parts receive parsed context and the injected agent directory', async (t) 
   })), [
     {
       command: 'install',
-      flags: { skip: ['one', 'two'], skipSkills: true },
+      flags: { skip: ['todo', 'pretty'], skipSkills: true },
       dryRun: true,
       agentDir: '/configured/pi-agent',
       piVersion: '1.4.0',
@@ -260,6 +262,37 @@ test('parts receive parsed context and the injected agent directory', async (t) 
       signal: fallback.host.signal,
     },
   ]);
+});
+
+test('parts receive cwd, tmpdir, and readFile for project files', async (t) => {
+  const fake = createFakeHost(t, { runnerResults: [passingPi] });
+  let context;
+  const part = {
+    name: 'probe',
+    commands: ['install'],
+    run: async (ctx) => {
+      context = ctx;
+      return [];
+    },
+  };
+
+  await run(['install'], fake.host, { parts: [part] });
+
+  const target = join(fake.cwd, 'target.txt');
+  const link = join(fake.cwd, 'linked.txt');
+  await writeFile(target, 'project file contents');
+  await symlink(target, link);
+
+  assert.equal(typeof fake.host.cwd, 'string');
+  assert.equal(typeof fake.host.tmpdir, 'string');
+  await access(fake.host.cwd);
+  await access(fake.host.tmpdir);
+  assert.equal(context.cwd, fake.host.cwd);
+  assert.equal(context.tmpdir, fake.host.tmpdir);
+  assert.equal(typeof context.readFile, 'function');
+  assert.equal(await context.readFile(target), 'project file contents');
+  assert.deepEqual(await context.readFile(join(fake.cwd, 'missing.txt')), { notFound: true });
+  assert.equal(await context.readFile(link), 'project file contents');
 });
 
 test('status lists every inventory item exactly once with its outcome', async (t) => {
@@ -409,16 +442,16 @@ test('inventory color follows TTY and NO_COLOR rules', async (t) => {
   assert.doesNotMatch(noColor.stdout.text, /\u001b\[/);
 });
 
-test('status and doctor without parts retain the Pi-only summary', async (t) => {
+test('status and doctor with an empty parts list retain the Pi-only summary', async (t) => {
   const status = createFakeHost(t, { runnerResults: [passingPi] });
   const doctor = createFakeHost(t, { runnerResults: [passingPi] });
   const missingPi = createFakeHost(t, {
     runnerResults: [{ notFound: true, code: null, signal: null, stdout: '', stderr: '' }],
   });
 
-  await run(['status'], status.host);
-  await run(['doctor'], doctor.host);
-  const missingPiCode = await run(['status'], missingPi.host);
+  await run(['status'], status.host, { parts: [] });
+  await run(['doctor'], doctor.host, { parts: [] });
+  const missingPiCode = await run(['status'], missingPi.host, { parts: [] });
 
   for (const output of [status.stdout.text, doctor.stdout.text]) {
     assert.match(output, /Pi: ok \(1\.4\.0\)/);
