@@ -31,6 +31,22 @@ test('install dry-run previews missing packages without calling Pi or changing s
   }
 });
 
+test('install accepts a UTF-8 BOM in global settings', async (t) => {
+  const fake = createFakeHost(t);
+  await writeFile(join(fake.piCodingAgentDir, 'settings.json'),
+    `\uFEFF${JSON.stringify({ packages: catalogSources.slice(0, -1) })}`);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0);
+  assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [
+    ['pi', ['--version']],
+    ['pi', ['install', catalogSources.at(-1), '--no-approve']],
+  ]);
+  assert.deepEqual((await fake.readGlobalSettings()).packages, catalogSources);
+  assert.doesNotMatch(fake.stdout.text, /can't parse/);
+});
+
 test('unknown skip IDs are rejected before all runner calls and list catalog IDs', async (t) => {
   const fake = createFakeHost(t);
 

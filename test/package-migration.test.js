@@ -37,7 +37,7 @@ test('status reports a declared replaced package as migration drift', async (t) 
   }
 });
 
-test('migration removes every replaced source spelling as declared', async (t) => {
+test('migration removes an identity only once when both unpinned and pinned spellings are declared', async (t) => {
   const fake = createFakeHost(t);
   const pinnedReplacedSource = `${replacedSource}@1.0.0`;
   await fake.writeGlobalSettings({
@@ -50,7 +50,6 @@ test('migration removes every replaced source spelling as declared', async (t) =
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [
     ['pi', ['--version']],
     ['pi', ['remove', replacedSource, '--no-approve']],
-    ['pi', ['remove', pinnedReplacedSource, '--no-approve']],
   ]);
   assert.deepEqual((await fake.readGlobalSettings()).packages, [
     replacementSource,

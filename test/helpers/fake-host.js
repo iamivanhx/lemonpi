@@ -17,6 +17,10 @@ function captureStream(isTTY) {
   return stream;
 }
 
+function parsePiSettings(contents) {
+  return JSON.parse(contents.replace(/^\uFEFF/, ''));
+}
+
 function gitIdentity(source) {
   if (typeof source !== 'string') return null;
   if (source.startsWith('npm:')) {
@@ -68,7 +72,7 @@ async function installGitFixture(agentDirectory, source) {
   const settingsPath = join(agentDirectory, 'settings.json');
   let settings;
   try {
-    settings = JSON.parse(await readFileFromFs(settingsPath, 'utf8'));
+    settings = parsePiSettings(await readFileFromFs(settingsPath, 'utf8'));
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     settings = { packages: [] };
@@ -100,7 +104,7 @@ async function removeFixture(agentDirectory, source) {
   const settingsPath = join(agentDirectory, 'settings.json');
   let settings;
   try {
-    settings = JSON.parse(await readFileFromFs(settingsPath, 'utf8'));
+    settings = parsePiSettings(await readFileFromFs(settingsPath, 'utf8'));
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     settings = { packages: [] };
@@ -146,7 +150,7 @@ export function createFakeHost(t, overrides = {}) {
   const writeProjectSettings = (settings) => writeFixture(
     join(cwd, '.pi', 'settings.json'), settings,
   );
-  const readGlobalSettings = async () => JSON.parse(
+  const readGlobalSettings = async () => parsePiSettings(
     await readFileFromFs(join(piCodingAgentDir, 'settings.json'), 'utf8'),
   );
 

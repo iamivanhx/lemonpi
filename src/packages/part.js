@@ -156,6 +156,9 @@ async function migrateReplaced(ctx, { id, source, required, declarations, replac
   let afterRemove;
   let lastRemoval;
   for (const declaration of replacedDeclarations) {
+    if (afterRemove && !afterRemove.declarations.some(({ identity }) => identity === declaration.identity)) {
+      continue;
+    }
     if (ctx.signal.aborted) {
       return {
         item: {

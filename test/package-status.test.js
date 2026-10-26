@@ -67,6 +67,20 @@ test('status recognizes all eight unpinned declarations and Pi git spellings', a
   }
 });
 
+test('status accepts a UTF-8 BOM in global settings', async (t) => {
+  const fake = createFakeHost(t);
+  await writeFile(join(fake.piCodingAgentDir, 'settings.json'),
+    `\uFEFF${JSON.stringify({ packages: managedPackages.map(({ source }) => source) })}`);
+
+  const code = await run(['status'], fake.host);
+
+  assert.equal(code, 0);
+  for (const { id, source } of managedPackages) {
+    assert.ok(fake.stdout.text.includes(`${id} (${source}): ok`));
+  }
+  assert.doesNotMatch(fake.stdout.text, /can't parse|: unknown/);
+});
+
 test('status recognizes Pi git-prefixed protocol spellings and trimmed sources', async (t) => {
   const claudeCodeSpellings = [
     'git:https://github.com/earendil-works/pi-claude-code',
@@ -217,6 +231,7 @@ test('doctor gives the same managed-package inventory as status', async (t) => {
 test('unreadable global settings report a failed settings item and unknown packages', async (t) => {
   const invalidSettings = [
     ['unparseable JSON', '{"packages": ['],
+    ['unparseable JSON after BOM', '\uFEFF{"packages": ['],
     ['zero-byte JSON', ''],
     ['non-object top level', '[]'],
     ['null top level', 'null'],

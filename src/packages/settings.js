@@ -22,7 +22,7 @@ export async function readSettings(ctx, path = join(ctx.agentDir, 'settings.json
 
   let settings;
   try {
-    settings = JSON.parse(contents);
+    settings = JSON.parse(contents.replace(/^\uFEFF/, ''));
   } catch (error) {
     return unreadable(path, error.message);
   }
