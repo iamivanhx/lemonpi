@@ -45,6 +45,7 @@ export async function readSettings(ctx) {
       source,
       identity: identified?.identity ?? null,
       pinned: identified?.pinned ?? false,
+      pin: identified?.pin ?? null,
       form,
     };
   });

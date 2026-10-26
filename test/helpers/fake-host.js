@@ -39,9 +39,8 @@ function gitIdentity(source) {
     const scpStyle = /^(?:git@)?([^/:]+):(.+)$/.exec(normalized);
     if (scpStyle) normalized = `${scpStyle[1]}/${scpStyle[2]}`;
   }
-  const lastSlash = normalized.lastIndexOf('/');
-  const ref = normalized.lastIndexOf('@');
-  if (ref > lastSlash) normalized = normalized.slice(0, ref);
+  const ref = normalized.indexOf('@');
+  if (ref !== -1) normalized = normalized.slice(0, ref);
   normalized = normalized.replace(/\.git$/i, '');
   return `git:${normalized}`;
 }

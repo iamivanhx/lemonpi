@@ -74,6 +74,24 @@ test('fake Pi identity matches SSH and git-at scp spellings with refs', async (t
   }
 });
 
+test('fake Pi replaces a git declaration pinned to a slash-containing branch ref', async (t) => {
+  const fake = createFakeHost(t);
+  const canonical = 'git:github.com/example/tool';
+  await fake.writeGlobalSettings({
+    packages: [{
+      source: `${canonical}@feature/next`,
+      filters: ['extensions/*.ts'],
+      autoload: false,
+    }],
+  });
+
+  await fake.host.runner('pi', ['install', canonical, '--no-approve']);
+
+  assert.deepEqual(await fake.readGlobalSettings(), {
+    packages: [{ source: canonical, filters: ['extensions/*.ts'], autoload: false }],
+  });
+});
+
 test('fake Pi appends a package with a new identity', async (t) => {
   const fake = createFakeHost(t);
   const settingsPath = join(fake.piCodingAgentDir, 'settings.json');

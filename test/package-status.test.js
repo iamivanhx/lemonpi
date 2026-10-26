@@ -67,7 +67,7 @@ test('status recognizes all eight unpinned declarations and Pi git spellings', a
   }
 });
 
-test('managed identity ignores npm pins and git refs even in object declarations', async (t) => {
+test('managed identity recognizes npm pins and git refs as pinned drift in object declarations', async (t) => {
   const fake = createFakeHost(t);
   const packages = [
     'npm:@tintinweb/pi-subagents@^0.22.0',
@@ -83,9 +83,20 @@ test('managed identity ignores npm pins and git refs even in object declarations
 
   const code = await run(['status'], fake.host);
 
-  assert.equal(code, 0);
-  for (const { id, source } of managedPackages) {
-    assert.ok(fake.stdout.text.includes(`${id} (${source}): ok`), `${id} is declared regardless of its pin`);
+  assert.equal(code, 1);
+  for (const [id, source, pin] of [
+    ['subagents', managedPackages[0].source, '^0.22.0'],
+    ['review', managedPackages[1].source, 'feature/next'],
+    ['todo', managedPackages[2].source, '>=2 <3'],
+    ['claude-code', managedPackages[3].source, 'v1'],
+    ['ask-user', managedPackages[4].source, 'next'],
+    ['web-access', managedPackages[5].source, '1.2.3'],
+    ['footer', managedPackages[6].source, '~0.5.0'],
+    ['pretty', managedPackages[7].source, '0.8.0'],
+  ]) {
+    assert.ok(fake.stdout.text.includes(
+      `${id} (${source}): drift — pinned to ${pin} — ` + '`install` unpins it',
+    ), `${id} is declared but pinned`);
   }
 });
 

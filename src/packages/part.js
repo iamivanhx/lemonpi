@@ -52,13 +52,23 @@ async function installMissing(ctx) {
     }
 
     const identity = identifySource(source)?.identity;
-    if (declaredIdentities.has(identity)) {
+    const declarations = settings.declarations.filter((declaration) => declaration.identity === identity);
+    const pinned = declarations.length === 1 && declarations[0].pinned;
+    if (declaredIdentities.has(identity) && !pinned) {
       items.push({ name, kind: 'action', outcome: 'ok', required });
       continue;
     }
 
     if (ctx.dryRun) {
-      items.push({ name, kind: 'action', outcome: 'changed', reason: 'would install', required });
+      items.push({
+        name,
+        kind: 'action',
+        outcome: 'changed',
+        reason: pinned
+          ? sanitizeDiagnostic(`would unpin ${declarations[0].pin} → ${source}`, ctx.env)
+          : 'would install',
+        required,
+      });
       continue;
     }
 
@@ -67,14 +77,30 @@ async function installMissing(ctx) {
       signal: ctx.signal,
     });
     const afterInstall = await readSettings(ctx);
-    const nowDeclared = afterInstall.ok
-      && afterInstall.declarations.some(({ identity: declaredIdentity }) => declaredIdentity === identity);
-    if (result.notFound || result.error || result.code !== 0 || !nowDeclared) {
+    const afterDeclarations = afterInstall.ok
+      ? afterInstall.declarations.filter(({ identity: declaredIdentity }) => declaredIdentity === identity)
+      : [];
+    const nowDeclared = pinned
+      ? afterDeclarations.length === 1 && !afterDeclarations[0].pinned
+      : afterDeclarations.length > 0;
+    if (result.notFound || result.error || result.code !== 0) {
       items.push({
         name,
         kind: 'action',
         outcome: 'failed',
         reason: installFailureReason(source, result, ctx.env),
+        required,
+      });
+      continue;
+    }
+    if (!nowDeclared) {
+      items.push({
+        name,
+        kind: 'action',
+        outcome: 'failed',
+        reason: pinned && afterDeclarations.length === 1 && afterDeclarations[0].pinned
+          ? 'still pinned after pi install'
+          : installFailureReason(source, result, ctx.env),
         required,
       });
       continue;
@@ -85,7 +111,9 @@ async function installMissing(ctx) {
       name,
       kind: 'action',
       outcome: 'changed',
-      reason: 'installed',
+      reason: pinned
+        ? sanitizeDiagnostic(`unpinned ${declarations[0].pin} → ${source}`, ctx.env)
+        : 'installed',
       required,
     });
   }
@@ -133,6 +161,18 @@ export const packagesPart = Object.freeze({
         };
       }
       const identity = identifySource(source)?.identity;
+      const declarations = settings.declarations.filter((declaration) => declaration.identity === identity);
+      if (declarations.length === 1 && declarations[0].pinned) {
+        return {
+          name,
+          kind: 'inventory',
+          outcome: 'drift',
+          reason: sanitizeDiagnostic(
+            `pinned to ${declarations[0].pin} — ` + '`install` unpins it',
+            ctx.env,
+          ),
+        };
+      }
       const installed = identity !== undefined && declaredIdentities.has(identity);
       return {
         name,

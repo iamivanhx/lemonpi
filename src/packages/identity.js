@@ -51,6 +51,7 @@ function parseGitSource(source) {
   return {
     identity: `git:${host}/${path}`,
     pinned: ref !== null,
+    pin: ref,
     type: 'git',
   };
 }
@@ -64,6 +65,7 @@ export function identifySource(source) {
     return {
       identity: `npm:${match[1]}`,
       pinned: match[2] !== undefined,
+      pin: match[2] ?? null,
       type: 'npm',
     };
   }
