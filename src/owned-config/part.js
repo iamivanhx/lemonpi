@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { sanitizeDiagnostic } from '../sanitize.js';
 import { readShippedContent } from './bundled-data.js';
 import { ownedConfig } from './manifest.js';
+import { writeOwnedFile } from './writer.js';
 
 function item(descriptor, outcome, reason, env) {
   return {
@@ -63,6 +64,70 @@ async function inspectDefaultModel(ctx, descriptor) {
   return differs(descriptor, ctx.env);
 }
 
+function action(descriptor, outcome, reason, env, required) {
+  return {
+    name: descriptor.name,
+    kind: 'action',
+    outcome,
+    ...(reason === undefined ? {} : { reason: sanitizeDiagnostic(reason, env) }),
+    ...(required === undefined ? {} : { required }),
+  };
+}
+
+function actionFailure(descriptor, code, env) {
+  const safeCode = typeof code === 'string' && /^(?:E[A-Z0-9_]+|ERR_[A-Z0-9_]+|UNKNOWN)$/.test(code)
+    ? code
+    : 'UNKNOWN';
+  return action(descriptor, 'failed', `${descriptor.path}: ${safeCode}`, env, true);
+}
+
+async function installShippedFile(ctx, descriptor, backupStamp) {
+  const target = join(ctx.agentDir, descriptor.path);
+  const shippedBytes = await readShippedContent(descriptor);
+  let facts;
+  try {
+    facts = await ctx.stat(target);
+  } catch (error) {
+    return actionFailure(descriptor, error?.code, ctx.env);
+  }
+  if (!facts?.notFound && !facts?.isFile) {
+    return actionFailure(descriptor, facts?.isDirectory ? 'EISDIR' : 'EINVAL', ctx.env);
+  }
+
+  let existingBytes;
+  if (!facts?.notFound) {
+    try {
+      existingBytes = await ctx.readBytes(target);
+    } catch (error) {
+      return actionFailure(descriptor, error?.code, ctx.env);
+    }
+    if (existingBytes?.notFound === true) {
+      facts = { notFound: true };
+    } else if (!Buffer.isBuffer(existingBytes)) {
+      return actionFailure(descriptor, 'EINVAL', ctx.env);
+    } else if (existingBytes.equals(shippedBytes)) {
+      return action(descriptor, 'ok', undefined, ctx.env);
+    }
+  }
+
+  const existing = facts?.notFound !== true;
+  const result = await writeOwnedFile(ctx, {
+    target,
+    relativePath: descriptor.path,
+    bytes: shippedBytes,
+    mode: existing ? facts.mode : undefined,
+    backupBytes: existing ? existingBytes : undefined,
+    backupStamp: existing ? backupStamp() : undefined,
+  });
+  if (result.type === 'backup-failed') {
+    return action(descriptor, 'failed', 'backup failed; not changed', ctx.env, true);
+  }
+  if (result.type === 'write-failed') {
+    return actionFailure(descriptor, result.error?.code, ctx.env);
+  }
+  return action(descriptor, 'changed', existing ? 'restored shipped version' : 'added', ctx.env);
+}
+
 async function inspectShippedFile(ctx, descriptor) {
   const target = join(ctx.agentDir, descriptor.path);
   let facts;
@@ -92,9 +157,23 @@ async function inspectShippedFile(ctx, descriptor) {
 
 export const ownedConfigPart = Object.freeze({
   name: 'Owned config',
-  commands: Object.freeze(['status', 'doctor']),
+  commands: Object.freeze(['install', 'update', 'status', 'doctor']),
   async run(ctx) {
     const items = [];
+    if (ctx.command === 'install' || ctx.command === 'update') {
+      let backupTimestamp;
+      const backupStamp = () => {
+        backupTimestamp ??= ctx.now().toISOString().replace(/:/g, '-');
+        return backupTimestamp;
+      };
+      for (const descriptor of ownedConfig) {
+        if (ctx.signal.aborted) break;
+        if (descriptor.kind === 'shipped-file') {
+          items.push(await installShippedFile(ctx, descriptor, backupStamp));
+        }
+      }
+      return items;
+    }
     for (const descriptor of ownedConfig) {
       items.push(descriptor.kind === 'default-model'
         ? await inspectDefaultModel(ctx, descriptor)

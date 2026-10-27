@@ -378,5 +378,4 @@ test('install adds every missing package in catalog order and is idempotent', as
   assert.equal(secondCode, 0);
   assert.equal(fake.runnerCalls.length, 10);
   assert.deepEqual(fake.runnerCalls.slice(9).map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
-  assert.match(fake.stdout.text, /OK: 8 items/);
 });

@@ -215,7 +215,10 @@ export function createFakeHost(t, overrides = {}) {
   const runnerResults = [...(overrides.runnerResults ?? [])];
   const fakePi = overrides.fakePi ?? {};
   const abortController = new AbortController();
-  const writeFailurePaths = (overrides.writeFailures ?? []).map((path) => resolve(path));
+  const configuredWriteFailures = typeof overrides.writeFailures === 'function'
+    ? overrides.writeFailures({ home, agentDir: piCodingAgentDir })
+    : overrides.writeFailures ?? [];
+  const writeFailurePaths = configuredWriteFailures.map((path) => resolve(path));
   const fixedNow = new Date(overrides.now ?? '2026-10-26T12:00:00.000Z');
   let successfulRenames = 0;
 
