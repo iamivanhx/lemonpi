@@ -111,8 +111,14 @@ async function installShippedFile(ctx, descriptor, backupStamp) {
   }
 
   const existing = facts?.notFound !== true;
+  let realTarget;
+  try {
+    realTarget = await ctx.realpath(target);
+  } catch (error) {
+    return actionFailure(descriptor, error?.code, ctx.env);
+  }
   const result = await writeOwnedFile(ctx, {
-    target,
+    target: realTarget,
     relativePath: descriptor.path,
     bytes: shippedBytes,
     mode: existing ? facts.mode : undefined,

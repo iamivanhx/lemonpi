@@ -1,5 +1,18 @@
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import {
+  access,
+  chmod,
+  lstat,
+  mkdir,
+  readlink,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
@@ -89,6 +102,128 @@ test('install restores differing shipped bytes and keeps one private backup out 
   assert.equal((await stat(join(backupRun, 'agents'))).mode & 0o777, 0o700);
   assert.equal((await stat(backup)).mode & 0o777, 0o600);
   assert.doesNotMatch(fake.stdout.text, /lemonpi-backups|local hand edit must not appear in output/);
+});
+
+test('install restores a differing shipped file through an external symlink and backs up the real bytes', async (t) => {
+  const fake = createFakeHost(t);
+  await seedShippedFiles(fake);
+  const link = join(fake.piCodingAgentDir, 'extensions/pi-footer.json');
+  const realTarget = join(fake.home, 'dotfiles/pi-footer.json');
+  const oldBytes = Buffer.from('{"local":"footer edit"}\n');
+  const shipped = await readFile(new URL('../src/owned-config/shipped-content/extensions/pi-footer.json', import.meta.url));
+  await mkdir(join(realTarget, '..'), { recursive: true });
+  await writeFile(realTarget, oldBytes);
+  await rm(link);
+  await symlink(realTarget, link);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0);
+  assert.equal((await lstat(link)).isSymbolicLink(), true);
+  assert.equal(await readlink(link), realTarget);
+  assert.deepEqual(await readFile(realTarget), shipped);
+  assert.match(fake.stdout.text, /extensions\/pi-footer\.json: restored shipped version/);
+  assert.deepEqual(
+    await readFile(join(fake.piCodingAgentDir, 'lemonpi-backups/2026-10-26T12-00-00.000Z/extensions/pi-footer.json')),
+    oldBytes,
+  );
+});
+
+test('install creates the target of a dangling shipped-file symlink without backing up', async (t) => {
+  const fake = createFakeHost(t);
+  await seedShippedFiles(fake);
+  const link = join(fake.piCodingAgentDir, 'agents/explorer.md');
+  const target = join(fake.home, 'dotfiles/agents/explorer.md');
+  const shipped = await readFile(new URL('../src/owned-config/shipped-content/agents/explorer.md', import.meta.url));
+  await rm(link);
+  await symlink(target, link);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0);
+  assert.equal((await lstat(link)).isSymbolicLink(), true);
+  assert.equal(await readlink(link), target);
+  assert.deepEqual(await readFile(target), shipped);
+  assert.match(fake.stdout.text, /agents\/explorer\.md: added/);
+  await assert.rejects(access(join(fake.piCodingAgentDir, 'lemonpi-backups')));
+});
+
+test('install writes through a two-link chain and leaves both links in place', async (t) => {
+  const fake = createFakeHost(t);
+  await seedShippedFiles(fake);
+  const link = join(fake.piCodingAgentDir, 'agents/explorer.md');
+  const secondLink = join(fake.home, 'dotfiles/agents/current-explorer.md');
+  const realTarget = join(fake.home, 'dotfiles/revisions/explorer.md');
+  const shipped = await readFile(new URL('../src/owned-config/shipped-content/agents/explorer.md', import.meta.url));
+  await mkdir(join(realTarget, '..'), { recursive: true });
+  await writeFile(realTarget, 'old two-link target');
+  await rm(link);
+  await symlink(secondLink, link);
+  await mkdir(join(secondLink, '..'), { recursive: true });
+  await symlink(realTarget, secondLink);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0);
+  assert.equal((await lstat(link)).isSymbolicLink(), true);
+  assert.equal((await lstat(secondLink)).isSymbolicLink(), true);
+  assert.equal(await readlink(link), secondLink);
+  assert.equal(await readlink(secondLink), realTarget);
+  assert.deepEqual(await readFile(realTarget), shipped);
+  assert.match(fake.stdout.text, /agents\/explorer\.md: restored shipped version/);
+});
+
+test('an equal shipped-file symlink is ok and install leaves it untouched without a backup', async (t) => {
+  const fake = createFakeHost(t);
+  await seedShippedFiles(fake);
+  const link = join(fake.piCodingAgentDir, 'extensions/pi-footer.json');
+  const target = join(fake.home, 'dotfiles/pi-footer.json');
+  const shipped = await readFile(new URL('../src/owned-config/shipped-content/extensions/pi-footer.json', import.meta.url));
+  await mkdir(join(target, '..'), { recursive: true });
+  await writeFile(target, shipped);
+  await rm(link);
+  await symlink(target, link);
+  const before = await stat(target, { bigint: true });
+
+  await run(['status'], fake.host);
+  const installCode = await run(['install'], fake.host);
+
+  const after = await stat(target, { bigint: true });
+  assert.match(fake.stdout.text, /extensions\/pi-footer\.json: ok/);
+  assert.equal(installCode, 0);
+  assert.equal((await lstat(link)).isSymbolicLink(), true);
+  assert.equal(await readlink(link), target);
+  assert.deepEqual(after.mtimeNs, before.mtimeNs);
+  assert.deepEqual(await readFile(target), shipped);
+  await assert.rejects(access(join(fake.piCodingAgentDir, 'lemonpi-backups')));
+});
+
+test('a failed write through a symlink leaves no temporary file next to either path', async (t) => {
+  let realTarget;
+  const fake = createFakeHost(t, {
+    writeFailures: ({ home }) => {
+      realTarget = join(home, 'dotfiles/pi-footer.json');
+      return [join(realpathSync(home), 'dotfiles/pi-footer.json')];
+    },
+  });
+  await seedShippedFiles(fake);
+  const link = join(fake.piCodingAgentDir, 'extensions/pi-footer.json');
+  await mkdir(join(realTarget, '..'), { recursive: true });
+  const oldBytes = Buffer.from('{"local":"footer edit"}\n');
+  await writeFile(realTarget, oldBytes);
+  await rm(link);
+  await symlink(realTarget, link);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 2, fake.stdout.text);
+  assert.equal((await lstat(link)).isSymbolicLink(), true);
+  assert.match(fake.stdout.text, /Failed:\n  - extensions\/pi-footer\.json: extensions\/pi-footer\.json: EACCES/);
+  assert.deepEqual(await readFile(realTarget), oldBytes);
+  for (const directory of [join(link, '..'), join(realTarget, '..')]) {
+    const entries = await readdir(directory);
+    assert.ok(!entries.some((name) => name.includes('.lemonpi-') || name.endsWith('.tmp')), directory);
+  }
 });
 
 test('install keeps a differing mode-0600 shipped file at mode 0600', async (t) => {

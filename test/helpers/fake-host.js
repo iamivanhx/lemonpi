@@ -222,10 +222,11 @@ export function createFakeHost(t, overrides = {}) {
   const fixedNow = new Date(overrides.now ?? '2026-10-26T12:00:00.000Z');
   let successfulRenames = 0;
 
-  const checkWriteTarget = (path) => {
-    const target = resolve(path);
-    if (writeFailurePaths.some((blockedPath) => isUnderPath(target, blockedPath))) {
-      throw accessDenied(path);
+  const checkWriteTarget = async (path) => {
+    const target = await realpathIncludingDangling(path);
+    for (const blockedPath of writeFailurePaths) {
+      const realBlockedPath = await realpathIncludingDangling(blockedPath);
+      if (isUnderPath(target, realBlockedPath)) throw accessDenied(path);
     }
   };
   const stdin = new Proxy(Object.create(null), {
@@ -280,15 +281,15 @@ export function createFakeHost(t, overrides = {}) {
     stat: (path) => fileFacts(statOnFs, path),
     realpath: realpathIncludingDangling,
     mkdir: async (path, options = {}) => {
-      checkWriteTarget(path);
+      await checkWriteTarget(path);
       return mkdirOnFs(path, options);
     },
     writeFile: async (path, bytes, options = {}) => {
-      checkWriteTarget(path);
+      await checkWriteTarget(path);
       return writeFile(path, bytes, options);
     },
     rename: async (from, to) => {
-      checkWriteTarget(to);
+      await checkWriteTarget(to);
       await renameOnFs(from, to);
       successfulRenames += 1;
       if (successfulRenames === overrides.abortAfterRenames) {
