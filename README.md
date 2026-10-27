@@ -97,7 +97,7 @@ Every other setting and file is never touched or reported. `install` and `update
 
 Changes made through pi-footer's `/footer` UI, or by editing the agent files, are reverted by the next `install` or `update`. Make those changes in the lemonpi repo instead.
 
-Before rewriting an existing file that differs, lemonpi backs it up under `<agentDir>/lemonpi-backups/<timestamp>/`, with one folder per run. Backups are never pruned or printed. Symlinked files are written through and the link is kept. Files lemonpi stops shipping stay as your files.
+Before rewriting an existing file that differs, lemonpi backs it up under `<agentDir>/lemonpi-backups/<timestamp>/`, with one folder per run. For `settings.json`, lemonpi backs it up only if it existed when the command began; settings created by Pi earlier in the same run are not backed up. Backups are never pruned or printed. Symlinked files are written through and the link is kept. Files lemonpi stops shipping stay as your files.
 
 `--skip footer` holds back only the package, not its config.
 

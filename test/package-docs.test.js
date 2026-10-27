@@ -64,6 +64,10 @@ test('README Owned config section documents ownership and restore behavior', asy
   assert.ok(section.includes('are reverted by the next `install` or `update`'), 'documents restore of local edits');
   assert.ok(section.includes('<agentDir>/lemonpi-backups/<timestamp>/'), 'documents the backup location');
   assert.ok(section.includes('Before rewriting an existing file that differs'), 'limits backups to differing existing files');
+  assert.ok(
+    section.includes('For `settings.json`, lemonpi backs it up only if it existed when the command began; settings created by Pi earlier in the same run are not backed up.'),
+    'documents the settings backup command-entry boundary',
+  );
   assert.ok(section.includes('one folder per run'), 'documents one backup folder per run');
   assert.ok(section.includes('Backups are never pruned or printed'), 'documents backup retention and output');
   assert.ok(section.includes('Symlinked files are written through and the link is kept'), 'documents symlink handling');
