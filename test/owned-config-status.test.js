@@ -92,6 +92,19 @@ test('the shipped agent definitions and footer config are present and named corr
   }
 });
 
+test('shipped implementer, researcher, and reviewer pin the requested 6.1 models', async () => {
+  for (const [agent, model] of [
+    ['implementer', 'openai-codex/gpt-6.1-terra'],
+    ['researcher', 'openai-codex/gpt-6.1-sol'],
+    ['reviewer', 'openai-codex/gpt-6.1-sol'],
+  ]) {
+    const contents = await readFile(new URL(`../src/owned-config/shipped-content/agents/${agent}.md`, import.meta.url), 'utf8');
+    const frontMatter = contents.match(/^---\s*\n([\s\S]*?)\n---/);
+    assert.ok(frontMatter, `${agent} has front matter`);
+    assert.equal(frontMatter[1].match(/^model:\s*(.*?)\s*$/m)?.[1], model, agent);
+  }
+});
+
 test('status lists missing owned config once in manifest order', async (t) => {
   const fake = createFakeHost(t);
 

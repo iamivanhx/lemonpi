@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Investigate a bounded question from primary sources and save one cited finding.
-model: openai-codex/gpt-6-sol
+model: openai-codex/gpt-6.1-sol
 thinking: high
 tools:
   - read

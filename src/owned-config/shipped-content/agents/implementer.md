@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Implement one locked ticket in an isolated worktree and return committed evidence.
-model: openai-codex/gpt-6-luna
+model: openai-codex/gpt-6.1-terra
 thinking: max
 tools:
   - read

@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Read-only reviewer of a supplied, pinned change snapshot.
-model: openai-codex/gpt-6-sol
+model: openai-codex/gpt-6.1-sol
 thinking: high
 tools:
   - read
