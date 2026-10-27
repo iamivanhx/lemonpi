@@ -35,6 +35,174 @@ async function seedShippedFiles(fake) {
   }
 }
 
+async function snapshotTree(path) {
+  const facts = await lstat(path);
+  const mode = facts.mode & 0o777;
+  if (facts.isSymbolicLink()) return { type: 'symlink', mode, target: await readlink(path) };
+  if (facts.isDirectory()) {
+    const entries = await Promise.all((await readdir(path)).sort().map(async (name) => [
+      name,
+      await snapshotTree(join(path, name)),
+    ]));
+    return { type: 'directory', mode, entries };
+  }
+  return { type: 'file', mode, bytes: await readFile(path) };
+}
+
+function observeHostWrites(fake) {
+  const calls = [];
+  for (const name of ['mkdir', 'writeFile', 'rename', 'chmod', 'rm']) {
+    const original = fake.host[name];
+    fake.host[name] = async (...args) => {
+      calls.push({ name, paths: args.filter((argument) => typeof argument === 'string') });
+      return original(...args);
+    };
+  }
+  return calls;
+}
+
+test('install --dry-run previews additions without changing an empty agent directory', async (t) => {
+  const fake = createFakeHost(t);
+  const before = await snapshotTree(fake.piCodingAgentDir);
+  const hostWrites = observeHostWrites(fake);
+
+  const code = await run(['install', '--dry-run'], fake.host);
+
+  assert.equal(code, 0, fake.stdout.text);
+  assert.ok(
+    fake.stdout.text.includes('default model (claude-code/claude-opus-5-5): would set to claude-code/claude-opus-5-5'),
+    fake.stdout.text,
+  );
+  for (const path of shippedFiles) assert.ok(fake.stdout.text.includes(`${path}: would add`), fake.stdout.text);
+  assert.deepEqual(await snapshotTree(fake.piCodingAgentDir), before);
+  assert.deepEqual(hostWrites, []);
+  assert.deepEqual(fake.runnerCalls.map(({ args }) => args[0]), ['--version']);
+});
+
+test('install --dry-run previews a model set and shipped-file restore without changing either file', async (t) => {
+  const fake = createFakeHost(t);
+  await fake.writeGlobalSettings({
+    lastChangelogVersion: '1.2.3',
+    theme: 'dark',
+    defaultProvider: 'openai-codex',
+    defaultModel: 'gpt-6-luna',
+    packages: [
+      'npm:@tintinweb/pi-subagents',
+      'git:github.com/earendil-works/pi-review',
+      'npm:@juicesharp/rpiv-todo',
+      'git:github.com/earendil-works/pi-claude-code',
+      'npm:@juicesharp/rpiv-ask-user-question',
+      'npm:pi-web-access',
+      'npm:pi-footer',
+      'npm:@heyhuynhgiabuu/pi-pretty',
+    ],
+    modelThinkingLevels: { 'openai-codex/gpt-6-luna': 'high' },
+  });
+  await seedShippedFiles(fake);
+  await writeFile(join(fake.piCodingAgentDir, 'agents/explorer.md'), 'local hand edit must remain');
+  const before = await snapshotTree(fake.piCodingAgentDir);
+  const hostWrites = observeHostWrites(fake);
+
+  const code = await run(['install', '--dry-run'], fake.host);
+
+  assert.equal(code, 0, fake.stdout.text);
+  assert.ok(fake.stdout.text.includes('default model (claude-code/claude-opus-5-5): would set to claude-code/claude-opus-5-5'), fake.stdout.text);
+  assert.ok(fake.stdout.text.includes('agents/explorer.md: would restore shipped version'), fake.stdout.text);
+  assert.deepEqual(await snapshotTree(fake.piCodingAgentDir), before);
+  assert.deepEqual(hostWrites, []);
+});
+
+test('update --dry-run previews the same owned-file and default-model changes without writes', async (t) => {
+  const fake = createFakeHost(t);
+  await fake.writeGlobalSettings({
+    theme: 'dark',
+    defaultProvider: 'openai-codex',
+    defaultModel: 'gpt-6-luna',
+    packages: [],
+  });
+  await seedShippedFiles(fake);
+  await writeFile(join(fake.piCodingAgentDir, 'agents/explorer.md'), 'local hand edit');
+  await rm(join(fake.piCodingAgentDir, 'agents/reviewer.md'));
+  const before = await snapshotTree(fake.piCodingAgentDir);
+  const hostWrites = observeHostWrites(fake);
+
+  const code = await run(['update', '--dry-run'], fake.host);
+
+  assert.equal(code, 0, fake.stdout.text);
+  assert.ok(fake.stdout.text.includes('default model (claude-code/claude-opus-5-5): would set to claude-code/claude-opus-5-5'), fake.stdout.text);
+  assert.ok(fake.stdout.text.includes('agents/explorer.md: would restore shipped version'), fake.stdout.text);
+  assert.ok(fake.stdout.text.includes('agents/reviewer.md: would add'), fake.stdout.text);
+  assert.deepEqual(await snapshotTree(fake.piCodingAgentDir), before);
+  assert.deepEqual(hostWrites, []);
+  assert.deepEqual(fake.runnerCalls.map(({ args }) => args[0]), ['--version']);
+});
+
+test('install --dry-run reports no owned changes for a fully matching machine', async (t) => {
+  const fake = createFakeHost(t);
+  await fake.writeGlobalSettings({
+    defaultProvider: 'claude-code',
+    defaultModel: 'claude-opus-5-5',
+    packages: [],
+  });
+  await seedShippedFiles(fake);
+  const before = await snapshotTree(fake.piCodingAgentDir);
+  const hostWrites = observeHostWrites(fake);
+
+  const code = await run(['install', '--dry-run'], fake.host);
+
+  const ownedChangeLines = fake.stdout.text.split('\n').filter((line) => (
+    line.includes('default model (claude-code/claude-opus-5-5)')
+    || shippedFiles.some((path) => line.includes(path))
+  ));
+  assert.equal(code, 0, fake.stdout.text);
+  assert.deepEqual(ownedChangeLines, []);
+  assert.match(fake.stdout.text, /OK: 7 items/);
+  assert.deepEqual(await snapshotTree(fake.piCodingAgentDir), before);
+  assert.deepEqual(hostWrites, []);
+});
+
+test('install/update --dry-run never invoke a runner or host write against the agent directory', async (t) => {
+  for (const command of ['install', 'update']) {
+    const fake = createFakeHost(t);
+    const before = await snapshotTree(fake.piCodingAgentDir);
+    const realAgentDir = realpathSync(fake.piCodingAgentDir);
+    const hostWrites = observeHostWrites(fake);
+
+    const code = await run([command, '--dry-run'], fake.host);
+
+    const writesToAgentDir = hostWrites.filter(({ paths }) => paths.some((path) => (
+      path === realAgentDir || path.startsWith(`${realAgentDir}/`)
+    )));
+    assert.equal(code, 0, fake.stdout.text);
+    assert.deepEqual(writesToAgentDir, []);
+    assert.deepEqual(
+      fake.runnerCalls.map(({ command: runner, args }) => [runner, ...args]),
+      [['pi', '--version']],
+    );
+    assert.deepEqual(await snapshotTree(fake.piCodingAgentDir), before);
+  }
+});
+
+test('install --dry-run keeps unparseable settings and the agent directory unchanged', async (t) => {
+  const fake = createFakeHost(t);
+  const settingsPath = join(fake.piCodingAgentDir, 'settings.json');
+  const settingsBytes = Buffer.from('{"packages": [');
+  await writeFile(settingsPath, settingsBytes);
+  const before = await snapshotTree(fake.piCodingAgentDir);
+  const hostWrites = observeHostWrites(fake);
+
+  const code = await run(['install', '--dry-run'], fake.host);
+
+  assert.equal(code, 0, fake.stdout.text);
+  assert.ok(
+    fake.stdout.text.includes('default model (claude-code/claude-opus-5-5): Pi settings unreadable; default model not set'),
+    fake.stdout.text,
+  );
+  assert.deepEqual(await readFile(settingsPath), settingsBytes);
+  assert.deepEqual(await snapshotTree(fake.piCodingAgentDir), before, 'the agent directory stays unchanged');
+  assert.deepEqual(hostWrites, []);
+});
+
 test('install sets the default model after Pi writes packages without backing up newly-created settings', async (t) => {
   const fake = createFakeHost(t);
 

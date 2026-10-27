@@ -232,12 +232,43 @@ async function inspectShippedFile(ctx, descriptor) {
   return differs(descriptor, ctx.env);
 }
 
+function previewItem(descriptor, inspected, env) {
+  if (inspected.outcome === 'ok') return action(descriptor, 'ok', undefined, env);
+  if (inspected.outcome === 'unknown') return unreadableSettings(descriptor, env);
+  if (inspected.outcome === 'failed') {
+    return action(descriptor, 'failed', inspected.reason, env, true);
+  }
+  if (descriptor.kind === 'default-model') {
+    return action(descriptor, 'changed', 'would set to claude-code/claude-opus-5-5', env);
+  }
+  return action(
+    descriptor,
+    'changed',
+    inspected.reason.startsWith('missing') ? 'would add' : 'would restore shipped version',
+    env,
+  );
+}
+
+async function previewOwnedItem(ctx, descriptor) {
+  const inspected = descriptor.kind === 'default-model'
+    ? await inspectDefaultModel(ctx, descriptor)
+    : await inspectShippedFile(ctx, descriptor);
+  return previewItem(descriptor, inspected, ctx.env);
+}
+
 export const ownedConfigPart = Object.freeze({
   name: 'Owned config',
   commands: Object.freeze(['install', 'update', 'status', 'doctor']),
   async run(ctx) {
     const items = [];
     if (ctx.command === 'install' || ctx.command === 'update') {
+      if (ctx.dryRun) {
+        for (const descriptor of ownedConfig) {
+          if (ctx.signal.aborted) break;
+          items.push(await previewOwnedItem(ctx, descriptor));
+        }
+        return items;
+      }
       let backupTimestamp;
       const backupStamp = () => {
         backupTimestamp ??= ctx.now().toISOString().replace(/:/g, '-');
