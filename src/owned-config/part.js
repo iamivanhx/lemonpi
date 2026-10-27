@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sanitizeDiagnostic } from '../sanitize.js';
+import { readShippedContent } from './bundled-data.js';
 import { ownedConfig } from './manifest.js';
 
 function item(descriptor, outcome, reason, env) {
@@ -25,7 +25,9 @@ function unknownSettings(descriptor, env) {
 }
 
 function failedFile(descriptor, code, env) {
-  const safeCode = typeof code === 'string' ? code : 'UNKNOWN';
+  const safeCode = typeof code === 'string' && /^(?:E[A-Z0-9_]+|ERR_[A-Z0-9_]+|UNKNOWN)$/.test(code)
+    ? code
+    : 'UNKNOWN';
   return item(descriptor, 'failed', `${descriptor.path}: ${safeCode}`, env);
 }
 
@@ -81,7 +83,7 @@ async function inspectShippedFile(ctx, descriptor) {
     return failedFile(descriptor, error?.code ?? 'UNKNOWN', ctx.env);
   }
   if (targetBytes?.notFound) return missing(descriptor, ctx.env);
-  const shippedBytes = await readFile(descriptor.source);
+  const shippedBytes = await readShippedContent(descriptor);
   if (Buffer.isBuffer(targetBytes) && targetBytes.equals(shippedBytes)) {
     return item(descriptor, 'ok', undefined, ctx.env);
   }

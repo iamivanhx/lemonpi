@@ -249,6 +249,52 @@ test('status fails an owned file that exists as a directory with a sanitized pat
   assert.ok(fake.stdout.text.includes('agents/explorer.md: failed — agents/explorer.md: EISDIR'));
 });
 
+test('status limits owned-file failure reasons to a relative path and error code', async (t) => {
+  const invalidCode = createFakeHost(t);
+  await seedOwnedConfig(invalidCode);
+  const invalidTarget = join(invalidCode.piCodingAgentDir, 'agents/explorer.md');
+  const stat = invalidCode.host.stat;
+  invalidCode.host.stat = async (path) => {
+    if (path === invalidTarget) {
+      const error = new Error('permission denied');
+      error.code = 'EACCES /synthetic/private-agent-path';
+      throw error;
+    }
+    return stat(path);
+  };
+
+  const invalidCodeResult = await run(['status'], invalidCode.host);
+
+  assert.equal(invalidCodeResult, 2);
+  assert.match(
+    invalidCode.stdout.text,
+    /agents\/explorer\.md: failed — agents\/explorer\.md: UNKNOWN/,
+  );
+  assert.doesNotMatch(invalidCode.stdout.text, /synthetic\/private-agent-path/);
+
+  const unreadable = createFakeHost(t);
+  await seedOwnedConfig(unreadable);
+  const unreadableTarget = join(unreadable.piCodingAgentDir, 'agents/explorer.md');
+  const readBytes = unreadable.host.readBytes;
+  unreadable.host.readBytes = async (path) => {
+    if (path === unreadableTarget) {
+      const error = new Error('read failed: /synthetic/private-agent-path');
+      error.code = 'EACCES';
+      throw error;
+    }
+    return readBytes(path);
+  };
+
+  const unreadableResult = await run(['status'], unreadable.host);
+
+  assert.equal(unreadableResult, 2);
+  assert.match(
+    unreadable.stdout.text,
+    /agents\/explorer\.md: failed — agents\/explorer\.md: EACCES/,
+  );
+  assert.doesNotMatch(unreadable.stdout.text, /synthetic\/private-agent-path/);
+});
+
 test('status never reports unowned agent files, extension configs, or settings keys', async (t) => {
   const fake = createFakeHost(t);
   await seedOwnedConfig(fake, {
