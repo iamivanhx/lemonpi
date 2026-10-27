@@ -78,7 +78,78 @@ function actionFailure(descriptor, code, env) {
   const safeCode = typeof code === 'string' && /^(?:E[A-Z0-9_]+|ERR_[A-Z0-9_]+|UNKNOWN)$/.test(code)
     ? code
     : 'UNKNOWN';
-  return action(descriptor, 'failed', `${descriptor.path}: ${safeCode}`, env, true);
+  return action(descriptor, 'failed', `${descriptor.path ?? 'settings.json'}: ${safeCode}`, env, true);
+}
+
+function unreadableSettings(descriptor, env) {
+  return action(descriptor, 'failed', 'Pi settings unreadable; default model not set', env, true);
+}
+
+async function installDefaultModel(ctx, descriptor, backupStamp) {
+  const target = join(ctx.agentDir, 'settings.json');
+  let existingBytes;
+  try {
+    existingBytes = await ctx.readBytes(target);
+  } catch (error) {
+    return actionFailure(descriptor, error?.code, ctx.env);
+  }
+
+  let settings = {};
+  if (existingBytes?.notFound !== true) {
+    if (!Buffer.isBuffer(existingBytes)) return unreadableSettings(descriptor, ctx.env);
+    try {
+      settings = JSON.parse(existingBytes.toString('utf8').replace(/^\uFEFF/, ''));
+    } catch {
+      return unreadableSettings(descriptor, ctx.env);
+    }
+    if (settings === null || typeof settings !== 'object' || Array.isArray(settings)
+        || (settings.packages !== undefined && !Array.isArray(settings.packages))) {
+      return unreadableSettings(descriptor, ctx.env);
+    }
+  }
+
+  if (settings.defaultProvider === descriptor.defaultProvider
+      && settings.defaultModel === descriptor.defaultModel) {
+    return action(descriptor, 'ok', undefined, ctx.env);
+  }
+  settings.defaultProvider = descriptor.defaultProvider;
+  settings.defaultModel = descriptor.defaultModel;
+
+  let mode;
+  if (Buffer.isBuffer(existingBytes)) {
+    let facts;
+    try {
+      facts = await ctx.stat(target);
+    } catch (error) {
+      return actionFailure(descriptor, error?.code, ctx.env);
+    }
+    if (facts?.notFound) return actionFailure(descriptor, 'ENOENT', ctx.env);
+    if (!facts?.isFile) return actionFailure(descriptor, facts?.isDirectory ? 'EISDIR' : 'EINVAL', ctx.env);
+    mode = facts.mode;
+  }
+
+  let realTarget;
+  try {
+    realTarget = await ctx.realpath(target);
+  } catch (error) {
+    return actionFailure(descriptor, error?.code, ctx.env);
+  }
+  const shouldBackup = ctx.settingsExistedAtCommandEntry === true && Buffer.isBuffer(existingBytes);
+  const result = await writeOwnedFile(ctx, {
+    target: realTarget,
+    relativePath: 'settings.json',
+    bytes: Buffer.from(`${JSON.stringify(settings, null, 2)}\n`),
+    mode,
+    backupBytes: shouldBackup ? existingBytes : undefined,
+    backupStamp: shouldBackup ? backupStamp() : undefined,
+  });
+  if (result.type === 'backup-failed') {
+    return action(descriptor, 'failed', 'backup failed; not changed', ctx.env, true);
+  }
+  if (result.type === 'write-failed') {
+    return actionFailure(descriptor, result.error?.code, ctx.env);
+  }
+  return action(descriptor, 'changed', 'set to claude-code/claude-opus-5-5', ctx.env);
 }
 
 async function installShippedFile(ctx, descriptor, backupStamp) {
@@ -174,9 +245,9 @@ export const ownedConfigPart = Object.freeze({
       };
       for (const descriptor of ownedConfig) {
         if (ctx.signal.aborted) break;
-        if (descriptor.kind === 'shipped-file') {
-          items.push(await installShippedFile(ctx, descriptor, backupStamp));
-        }
+        items.push(descriptor.kind === 'default-model'
+          ? await installDefaultModel(ctx, descriptor, backupStamp)
+          : await installShippedFile(ctx, descriptor, backupStamp));
       }
       return items;
     }

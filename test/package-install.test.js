@@ -18,7 +18,11 @@ const catalogSources = [
 
 test('install dry-run previews missing packages without calling Pi or changing settings', async (t) => {
   const fake = createFakeHost(t);
-  await fake.writeGlobalSettings({ packages: [] });
+  await fake.writeGlobalSettings({
+    packages: [],
+    defaultProvider: 'claude-code',
+    defaultModel: 'claude-opus-5-5',
+  });
   const before = await fake.readGlobalSettings();
 
   const code = await run(['install', '--dry-run'], fake.host);
@@ -241,7 +245,7 @@ test('install reports Pi not found for a package as a failure', async (t) => {
   assert.equal(code, 2);
   assert.ok(fake.stdout.text.includes('subagents (npm:@tintinweb/pi-subagents): pi install npm:@tintinweb/pi-subagents --no-approve'));
   assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args[1]), catalogSources);
-  assert.deepEqual(await fake.readGlobalSettings(), { packages: catalogSources.slice(1) });
+  assert.deepEqual((await fake.readGlobalSettings()).packages, catalogSources.slice(1));
 });
 
 test('install reports success without a declaration as a failed action', async (t) => {
@@ -260,7 +264,7 @@ test('install reports success without a declaration as a failed action', async (
   assert.ok(fake.stdout.text.includes('subagents (npm:@tintinweb/pi-subagents): pi install npm:@tintinweb/pi-subagents --no-approve'));
   assert.match(fake.stdout.text, /claiming success only/);
   assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args[1]), catalogSources);
-  assert.deepEqual(await fake.readGlobalSettings(), { packages: catalogSources.slice(1) });
+  assert.deepEqual((await fake.readGlobalSettings()).packages, catalogSources.slice(1));
 });
 
 test('install continues after required and optional failures and sanitizes all Pi diagnostics', async (t) => {

@@ -35,6 +35,30 @@ async function seedShippedFiles(fake) {
   }
 }
 
+test('install sets the default model after Pi writes packages without backing up newly-created settings', async (t) => {
+  const fake = createFakeHost(t);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0, fake.stdout.text);
+  const settings = await fake.readGlobalSettings();
+  assert.equal(settings.defaultProvider, 'claude-code');
+  assert.equal(settings.defaultModel, 'claude-opus-5-5');
+  assert.deepEqual(settings.packages, [
+    'npm:@tintinweb/pi-subagents',
+    'git:github.com/earendil-works/pi-review',
+    'npm:@juicesharp/rpiv-todo',
+    'git:github.com/earendil-works/pi-claude-code',
+    'npm:@juicesharp/rpiv-ask-user-question',
+    'npm:pi-web-access',
+    'npm:pi-footer',
+    'npm:@heyhuynhgiabuu/pi-pretty',
+  ]);
+  assert.match(fake.stdout.text, /default model \(claude-code\/claude-opus-5-5\): set to claude-code\/claude-opus-5-5/);
+  assert.doesNotMatch(fake.stdout.text, /openai-codex|gpt-6-luna/);
+  await assert.rejects(access(join(fake.piCodingAgentDir, 'lemonpi-backups')));
+});
+
 test('install adds all shipped files to an empty agent directory without backups', async (t) => {
   const fake = createFakeHost(t);
 
@@ -50,8 +74,51 @@ test('install adds all shipped files to an empty agent directory without backups
     assert.equal(fake.stdout.text.split(`${path}: added`).length - 1, 1);
   }
   assert.equal((fake.stdout.text.match(/: added/g) ?? []).length, 6);
-  assert.doesNotMatch(fake.stdout.text, /default model \(claude-code\/claude-opus-5-5\)/);
+  assert.match(fake.stdout.text, /default model \(claude-code\/claude-opus-5-5\): set to claude-code\/claude-opus-5-5/);
+  assert.doesNotMatch(fake.stdout.text, /openai-codex|gpt-6-luna/);
   await assert.rejects(access(join(fake.piCodingAgentDir, 'lemonpi-backups')));
+});
+
+test('install changes only the primary-machine default model keys and backs up the old settings', async (t) => {
+  const fake = createFakeHost(t);
+  const oldSettings = {
+    lastChangelogVersion: '1.2.3',
+    theme: 'dark',
+    defaultProvider: 'openai-codex',
+    defaultModel: 'gpt-6-luna',
+    packages: [
+      'npm:@tintinweb/pi-subagents',
+      'git:github.com/earendil-works/pi-review',
+      'npm:@juicesharp/rpiv-todo',
+      'git:github.com/earendil-works/pi-claude-code',
+      'npm:@juicesharp/rpiv-ask-user-question',
+      'npm:pi-web-access',
+      'npm:pi-footer',
+      'npm:@heyhuynhgiabuu/pi-pretty',
+    ],
+    modelThinkingLevels: { 'openai-codex/gpt-6-luna': 'high' },
+  };
+  await fake.writeGlobalSettings(oldSettings);
+  const settingsPath = join(fake.piCodingAgentDir, 'settings.json');
+  const oldBytes = await readFile(settingsPath);
+  const oldKeyOrder = Object.keys(oldSettings);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0, fake.stdout.text);
+  const settings = await fake.readGlobalSettings();
+  assert.equal(settings.defaultProvider, 'claude-code');
+  assert.equal(settings.defaultModel, 'claude-opus-5-5');
+  assert.deepEqual(Object.keys(settings), oldKeyOrder);
+  for (const key of ['theme', 'modelThinkingLevels', 'lastChangelogVersion', 'packages']) {
+    assert.deepEqual(settings[key], oldSettings[key], `${key} is unchanged`);
+  }
+  assert.equal(fake.stdout.text.split('default model (claude-code/claude-opus-5-5): set to claude-code/claude-opus-5-5').length - 1, 1);
+  assert.doesNotMatch(fake.stdout.text, /openai-codex|gpt-6-luna/);
+  const backup = join(fake.piCodingAgentDir, 'lemonpi-backups/2026-10-26T12-00-00.000Z/settings.json');
+  assert.deepEqual(await readFile(backup), oldBytes);
+  assert.deepEqual(await readdir(join(fake.piCodingAgentDir, 'lemonpi-backups/2026-10-26T12-00-00.000Z')), ['settings.json']);
+  assert.doesNotMatch(fake.stdout.text, /lemonpi-backups/);
 });
 
 test('a second install leaves shipped-file mtimes unchanged and counts all six as ok', async (t) => {
@@ -64,11 +131,49 @@ test('a second install leaves shipped-file mtimes unchanged and counts all six a
   const secondCode = await run(['install'], fake.host);
 
   assert.equal(secondCode, 0);
-  assert.match(fake.stdout.text, /OK: 14 items/, fake.stdout.text);
+  assert.match(fake.stdout.text, /OK: 15 items/, fake.stdout.text);
   const after = await Promise.all(paths.map((path) => stat(path, { bigint: true })));
   assert.deepEqual(after.map(({ mtimeNs }) => mtimeNs), before.map(({ mtimeNs }) => mtimeNs));
   await assert.rejects(access(join(fake.piCodingAgentDir, 'lemonpi-backups')));
   assert.equal(firstCode, 0);
+});
+
+test('install leaves an already-correct default model untouched and appends missing keys', async (t) => {
+  const correct = createFakeHost(t);
+  await correct.writeGlobalSettings({
+    defaultProvider: 'claude-code',
+    defaultModel: 'claude-opus-5-5',
+    packages: [
+      'npm:@tintinweb/pi-subagents',
+      'git:github.com/earendil-works/pi-review',
+      'npm:@juicesharp/rpiv-todo',
+      'git:github.com/earendil-works/pi-claude-code',
+      'npm:@juicesharp/rpiv-ask-user-question',
+      'npm:pi-web-access',
+      'npm:pi-footer',
+      'npm:@heyhuynhgiabuu/pi-pretty',
+    ],
+  });
+  const settingsPath = join(correct.piCodingAgentDir, 'settings.json');
+  const before = await stat(settingsPath, { bigint: true });
+
+  const correctCode = await run(['install'], correct.host);
+
+  const after = await stat(settingsPath, { bigint: true });
+  assert.equal(correctCode, 0, correct.stdout.text);
+  assert.deepEqual(after.mtimeNs, before.mtimeNs);
+  assert.match(correct.stdout.text, /OK: 9 items/);
+  assert.doesNotMatch(correct.stdout.text, /default model \(claude-code\/claude-opus-5-5\): set to/);
+  await assert.rejects(access(join(correct.piCodingAgentDir, 'lemonpi-backups')));
+
+  const missingKeys = createFakeHost(t);
+  await missingKeys.writeGlobalSettings({});
+  const missingKeysCode = await run(['install'], missingKeys.host);
+  const settings = await missingKeys.readGlobalSettings();
+  assert.equal(missingKeysCode, 0, missingKeys.stdout.text);
+  assert.deepEqual(Object.keys(settings), ['packages', 'defaultProvider', 'defaultModel']);
+  assert.equal(settings.defaultProvider, 'claude-code');
+  assert.equal(settings.defaultModel, 'claude-opus-5-5');
 });
 
 test('install restores differing shipped bytes and keeps one private backup out of output', async (t) => {
@@ -268,6 +373,30 @@ test('install preserves and never reports unowned agent and extension files', as
   assert.doesNotMatch(fake.stdout.text, /private agent file bytes|previously shipped file bytes|\"local\"/);
 });
 
+test('install and update leave unreadable settings untouched, fail the model item, and restore shipped files', async (t) => {
+  for (const [command, contents] of [
+    ['install', Buffer.from('{"packages": [')],
+    ['update', Buffer.from('[]')],
+  ]) {
+    const fake = createFakeHost(t);
+    const settingsPath = join(fake.piCodingAgentDir, 'settings.json');
+    await writeFile(settingsPath, contents);
+
+    const code = await run([command], fake.host);
+
+    assert.equal(code, 2, fake.stdout.text);
+    assert.deepEqual(await readFile(settingsPath), contents);
+    assert.match(fake.stdout.text, /Failed:[\s\S]*default model \(claude-code\/claude-opus-5-5\): Pi settings unreadable; default model not set/);
+    for (const path of shippedFiles) {
+      assert.deepEqual(
+        await readFile(join(fake.piCodingAgentDir, path)),
+        await readFile(new URL(`../src/owned-config/shipped-content/${path}`, import.meta.url)),
+        `${command} still restores ${path}`,
+      );
+    }
+  }
+});
+
 test('install reports one required write failure and continues without temporary files', async (t) => {
   const fake = createFakeHost(t, {
     writeFailures: ({ agentDir }) => [join(agentDir, 'agents/merger.md')],
@@ -284,6 +413,131 @@ test('install reports one required write failure and continues without temporary
   }
   const agentEntries = await readdir(join(fake.piCodingAgentDir, 'agents'));
   assert.ok(!agentEntries.some((name) => name.includes('.lemonpi-') || name.endsWith('.tmp')));
+});
+
+test('install writes settings through a symlink, keeps the link and target mode, and backs up old bytes', async (t) => {
+  const fake = createFakeHost(t);
+  const link = join(fake.piCodingAgentDir, 'settings.json');
+  const target = join(fake.home, 'dotfiles/settings.json');
+  const oldSettings = {
+    defaultProvider: 'openai-codex',
+    defaultModel: 'gpt-6-luna',
+    packages: [
+      'npm:@tintinweb/pi-subagents',
+      'git:github.com/earendil-works/pi-review',
+      'npm:@juicesharp/rpiv-todo',
+      'git:github.com/earendil-works/pi-claude-code',
+      'npm:@juicesharp/rpiv-ask-user-question',
+      'npm:pi-web-access',
+      'npm:pi-footer',
+      'npm:@heyhuynhgiabuu/pi-pretty',
+    ],
+  };
+  await mkdir(join(target, '..'), { recursive: true });
+  await writeFile(target, `${JSON.stringify(oldSettings, null, 2)}\n`);
+  await chmod(target, 0o600);
+  const oldBytes = await readFile(target);
+  await symlink(target, link);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0, fake.stdout.text);
+  assert.equal((await lstat(link)).isSymbolicLink(), true);
+  assert.equal(await readlink(link), target);
+  assert.equal((await stat(target)).mode & 0o777, 0o600);
+  const settings = JSON.parse(await readFile(target, 'utf8'));
+  assert.equal(settings.defaultProvider, 'claude-code');
+  assert.equal(settings.defaultModel, 'claude-opus-5-5');
+  assert.deepEqual(
+    await readFile(join(fake.piCodingAgentDir, 'lemonpi-backups/2026-10-26T12-00-00.000Z/settings.json')),
+    oldBytes,
+  );
+});
+
+test('update rewrites BOM-prefixed settings without the BOM and preserves unowned values', async (t) => {
+  const fake = createFakeHost(t);
+  const oldSettings = {
+    lastChangelogVersion: '1.2.3',
+    theme: 'dark',
+    defaultProvider: 'openai-codex',
+    defaultModel: 'gpt-6-luna',
+    packages: [
+      'npm:@tintinweb/pi-subagents',
+      'git:github.com/earendil-works/pi-review',
+      'npm:@juicesharp/rpiv-todo',
+      'git:github.com/earendil-works/pi-claude-code',
+      'npm:@juicesharp/rpiv-ask-user-question',
+      'npm:pi-web-access',
+      'npm:pi-footer',
+      'npm:@heyhuynhgiabuu/pi-pretty',
+    ],
+    modelThinkingLevels: { 'openai-codex/gpt-6-luna': 'high' },
+  };
+  await fake.writeGlobalSettings(oldSettings);
+  const settingsPath = join(fake.piCodingAgentDir, 'settings.json');
+  const oldJson = await readFile(settingsPath);
+  const oldBytes = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), oldJson]);
+  await writeFile(settingsPath, oldBytes);
+
+  const code = await run(['update'], fake.host);
+
+  assert.equal(code, 0, fake.stdout.text);
+  const writtenBytes = await readFile(settingsPath);
+  assert.notDeepEqual(writtenBytes.subarray(0, 3), Buffer.from([0xef, 0xbb, 0xbf]));
+  const settings = JSON.parse(writtenBytes.toString('utf8'));
+  assert.equal(settings.defaultProvider, 'claude-code');
+  assert.equal(settings.defaultModel, 'claude-opus-5-5');
+  for (const key of ['theme', 'modelThinkingLevels', 'lastChangelogVersion', 'packages']) {
+    assert.deepEqual(settings[key], oldSettings[key], `${key} is unchanged`);
+  }
+  assert.deepEqual(
+    await readFile(join(fake.piCodingAgentDir, 'lemonpi-backups/2026-10-26T12-00-00.000Z/settings.json')),
+    oldBytes,
+  );
+});
+
+test('a settings write failure names settings.json, keeps restoring shipped files, and removes its temp file', async (t) => {
+  const fake = createFakeHost(t, {
+    writeFailures: ({ agentDir }) => [join(agentDir, 'settings.json')],
+  });
+  await fake.writeGlobalSettings({
+    defaultProvider: 'openai-codex',
+    defaultModel: 'gpt-6-luna',
+    packages: [
+      'npm:@tintinweb/pi-subagents',
+      'git:github.com/earendil-works/pi-review',
+      'npm:@juicesharp/rpiv-todo',
+      'git:github.com/earendil-works/pi-claude-code',
+      'npm:@juicesharp/rpiv-ask-user-question',
+      'npm:pi-web-access',
+      'npm:pi-footer',
+      'npm:@heyhuynhgiabuu/pi-pretty',
+    ],
+  });
+  const settingsPath = join(fake.piCodingAgentDir, 'settings.json');
+  const originalSettings = await readFile(settingsPath);
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 2, fake.stdout.text);
+  assert.match(fake.stdout.text, /Failed:[\s\S]*default model \(claude-code\/claude-opus-5-5\): settings\.json: EACCES/);
+  assert.deepEqual(await readFile(settingsPath), originalSettings);
+  for (const path of shippedFiles) {
+    assert.deepEqual(
+      await readFile(join(fake.piCodingAgentDir, path)),
+      await readFile(new URL(`../src/owned-config/shipped-content/${path}`, import.meta.url)),
+      `${path} is still restored after settings failure`,
+    );
+  }
+  for (const directory of [
+    fake.piCodingAgentDir,
+    join(fake.piCodingAgentDir, 'agents'),
+    join(fake.piCodingAgentDir, 'extensions'),
+    join(fake.piCodingAgentDir, 'lemonpi-backups/2026-10-26T12-00-00.000Z'),
+  ]) {
+    const entries = await readdir(directory);
+    assert.ok(!entries.some((name) => name.includes('.lemonpi-') || name.endsWith('.tmp')), directory);
+  }
 });
 
 test('install leaves a shipped-file directory in place and reports EISDIR', async (t) => {
@@ -351,6 +605,23 @@ test('update applies the same shipped-file additions and restores as install', a
   );
 });
 
+test('status reports the default model ok after install', async (t) => {
+  const fake = createFakeHost(t);
+
+  const installCode = await run(['install'], fake.host);
+  const outputOffset = fake.stdout.text.length;
+  const statusCode = await run(['status'], fake.host);
+  const statusOutput = fake.stdout.text.slice(outputOffset);
+
+  assert.equal(installCode, 0);
+  assert.equal(statusCode, 0, statusOutput);
+  assert.equal(
+    statusOutput.split('default model (claude-code/claude-opus-5-5): ok').length - 1,
+    1,
+    statusOutput,
+  );
+});
+
 test('install --skip footer still writes the footer config and skips only the package', async (t) => {
   const fake = createFakeHost(t);
 
@@ -366,21 +637,18 @@ test('install --skip footer still writes the footer config and skips only the pa
   );
 });
 
-test('abort after the first owned rename leaves only the first shipped file and no temp file', async (t) => {
+test('abort after the first owned rename leaves only the default-model write and no temp file', async (t) => {
   const fake = createFakeHost(t, { abortAfterRenames: 1 });
 
   const code = await run(['install'], fake.host);
 
   assert.equal(code, 130);
-  const firstPath = join(fake.piCodingAgentDir, shippedFiles[0]);
-  assert.deepEqual(
-    await readFile(firstPath),
-    await readFile(new URL(`../src/owned-config/shipped-content/${shippedFiles[0]}`, import.meta.url)),
-  );
-  for (const path of shippedFiles.slice(1)) {
+  const settings = await fake.readGlobalSettings();
+  assert.equal(settings.defaultProvider, 'claude-code');
+  assert.equal(settings.defaultModel, 'claude-opus-5-5');
+  for (const path of shippedFiles) {
     await assert.rejects(access(join(fake.piCodingAgentDir, path)));
   }
-  const agentEntries = await readdir(join(fake.piCodingAgentDir, 'agents'));
-  assert.deepEqual(agentEntries, ['explorer.md']);
+  assert.deepEqual(await readdir(fake.piCodingAgentDir), ['settings.json']);
   assert.match(fake.stdout.text, /Result: interrupted — exit 130/);
 });

@@ -198,7 +198,11 @@ test('update dry-run combines reconciliation and update previews without mutatin
     'npm:pi-footer@1.0.0',
     { source: `${managedSources[7]}@0.6.29`, skills: ['skills/*.md'], autoload: false },
   ];
-  await fake.writeGlobalSettings({ packages });
+  await fake.writeGlobalSettings({
+    packages,
+    defaultProvider: 'claude-code',
+    defaultModel: 'claude-opus-5-5',
+  });
   const settingsPath = join(fake.piCodingAgentDir, 'settings.json');
   const before = await readFile(settingsPath);
 

@@ -62,8 +62,8 @@ test('primary machine status and install reconcile only its three package differ
     ['pi', ['install', 'npm:@heyhuynhgiabuu/pi-pretty', '--no-approve'], fake.tmpdir],
   ]);
   assert.match(installOutput, /Changed:/);
-  // The five managed package OK items plus the six seeded owned files share this count.
-  assert.match(installOutput, /OK: 11 items/);
+  // Managed packages plus the owned default model and six seeded files share this count.
+  assert.match(installOutput, /OK: 12 items/);
 
   const beforeFinalStatus = fake.stdout.text;
   const finalStatusCode = await run(['status'], fake.host);

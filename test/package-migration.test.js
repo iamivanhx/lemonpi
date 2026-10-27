@@ -268,7 +268,11 @@ test('abort after replacement install stops before removing the replaced package
 
 test('install dry-run previews migration without mutating the fixture', async (t) => {
   const fake = createFakeHost(t);
-  await fake.writeGlobalSettings({ packages: configuredWithReplaced });
+  await fake.writeGlobalSettings({
+    packages: configuredWithReplaced,
+    defaultProvider: 'claude-code',
+    defaultModel: 'claude-opus-5-5',
+  });
   const before = await fake.readGlobalSettings();
 
   const code = await run(['install', '--dry-run'], fake.host);
@@ -285,7 +289,11 @@ test('install dry-run previews migration without mutating the fixture', async (t
 
 test('install --skip subagents leaves the replaced package alone', async (t) => {
   const fake = createFakeHost(t);
-  await fake.writeGlobalSettings({ packages: configuredWithReplaced });
+  await fake.writeGlobalSettings({
+    packages: configuredWithReplaced,
+    defaultProvider: 'claude-code',
+    defaultModel: 'claude-opus-5-5',
+  });
   const before = await fake.readGlobalSettings();
 
   const code = await run(['install', '--skip', 'subagents'], fake.host);

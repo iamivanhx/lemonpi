@@ -147,6 +147,18 @@ export async function run(argv, host, options = {}) {
   }
   const dryRun = parsed.values['dry-run'] ?? false;
 
+  const agentDir = host.env.PI_CODING_AGENT_DIR ?? join(host.env.HOME, '.pi', 'agent');
+  let settingsExistedAtCommandEntry = false;
+  if ((command === 'install' || command === 'update') && !host.signal.aborted) {
+    try {
+      const settingsFacts = await host.stat(join(agentDir, 'settings.json'));
+      settingsExistedAtCommandEntry = settingsFacts?.notFound !== true;
+    } catch {
+      // If presence cannot be established safely, prefer preserving a possible old file.
+      settingsExistedAtCommandEntry = true;
+    }
+  }
+
   const prerequisites = host.signal.aborted
     ? {
       ok: false,
@@ -176,7 +188,8 @@ export async function run(argv, host, options = {}) {
       flags,
       dryRun,
       env: host.env,
-      agentDir: host.env.PI_CODING_AGENT_DIR ?? join(host.env.HOME, '.pi', 'agent'),
+      agentDir,
+      settingsExistedAtCommandEntry,
       cwd: host.cwd,
       tmpdir: host.tmpdir,
       readFile: host.readFile,
