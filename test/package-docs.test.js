@@ -21,12 +21,55 @@ async function readPackagesSection() {
   return { readme, section: readme.slice(start, end === -1 ? undefined : end) };
 }
 
+async function readOwnedConfigSection() {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  const start = readme.indexOf('## Owned config');
+  assert.notEqual(start, -1, 'README has an Owned config section');
+  const end = readme.indexOf('\n## ', start + '## Owned config'.length);
+  return readme.slice(start, end === -1 ? undefined : end);
+}
+
 test('README documents the built package scope without claiming later areas are built', async () => {
   const { readme } = await readPackagesSection();
 
-  assert.match(readme, /Current scope — Areas 1–2/);
+  assert.match(readme, /Current scope — Areas 1–3/);
+  assert.match(readme, /Private skills and Readiness are not implemented yet/i);
   assert.match(readme, /Owned config(?:uration)?[\s\S]*Private skills[\s\S]*Readiness[\s\S]*not implemented/i);
-  assert.doesNotMatch(readme, /Current scope — Area 1:/);
+  assert.doesNotMatch(readme, /Current scope — Areas 1–2/);
+  assert.doesNotMatch(readme, /Placeholder — Area 3/i);
+});
+
+test('README Owned config section documents ownership and restore behavior', async () => {
+  const section = await readOwnedConfigSection();
+
+  assert.ok(section.includes('default model `claude-code/claude-opus-5-5`'), 'names the owned default model');
+  assert.ok(section.includes('`defaultProvider` and `defaultModel`'), 'limits the model setting ownership');
+  for (const path of [
+    'settings.json',
+    'agents/explorer.md',
+    'agents/implementer.md',
+    'agents/merger.md',
+    'agents/researcher.md',
+    'agents/reviewer.md',
+    'extensions/pi-footer.json',
+  ]) {
+    assert.ok(section.includes(`\`${path}\``), `names owned path ${path}`);
+  }
+  assert.ok(section.includes('Every other setting and file is never touched or reported'), 'excludes all other settings and files');
+  assert.ok(section.includes('`install` and `update` restore owned items without asking'), 'documents automatic install and update restores');
+  assert.ok(section.includes('`status` reports them as **Drift**'), 'documents Drift in status');
+  assert.ok(section.includes('without showing a diff'), 'documents that status shows no diff');
+  assert.ok(section.includes("pi-footer's `/footer` UI"), 'identifies the footer UI as a source of edits');
+  assert.ok(section.includes('editing the agent files'), 'identifies agent-file edits');
+  assert.ok(section.includes('are reverted by the next `install` or `update`'), 'documents restore of local edits');
+  assert.ok(section.includes('<agentDir>/lemonpi-backups/<timestamp>/'), 'documents the backup location');
+  assert.ok(section.includes('Before rewriting an existing file that differs'), 'limits backups to differing existing files');
+  assert.ok(section.includes('one folder per run'), 'documents one backup folder per run');
+  assert.ok(section.includes('Backups are never pruned or printed'), 'documents backup retention and output');
+  assert.ok(section.includes('Symlinked files are written through and the link is kept'), 'documents symlink handling');
+  assert.ok(section.includes('Files lemonpi stops shipping stay as your files'), 'documents files no longer shipped');
+  assert.ok(section.includes('`--skip footer` holds back only the package, not its config'), 'documents footer skip scope');
+  assert.doesNotMatch(section, /Placeholder — Area 3/i, 'removes the Area 3 placeholder');
 });
 
 test('README Packages section lists the catalog and its reconciliation promises', async () => {

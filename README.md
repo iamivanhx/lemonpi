@@ -4,7 +4,7 @@
 
 lemonpi configures an existing Pi with Ivan's packages, settings, subagent definitions, extension configs, and private skills. It is configuration-only: it acts on an existing Pi rather than setting up Pi itself.
 
-**Current scope — Areas 1–2:** Area 1 provides the CLI shell and prerequisite checks. Area 2 manages the eight packages in the catalog below through `install`, `update`, and `status`. Owned config, private skills, and Readiness are not implemented yet; Areas 3–5 will add them. This README documents Managed packages, Unmanaged packages, Drift, Notice, and Skipped; Area 5 will document Readiness, including Unknown results.
+**Current scope — Areas 1–3:** Area 1 provides the CLI shell and prerequisite checks. Area 2 manages the eight packages in the catalog below through `install`, `update`, and `status`. Area 3 manages owned config through `install`, `update`, and `status`. Private skills and Readiness are not implemented yet; Areas 4–5 will add them. This README documents Managed packages, Unmanaged packages, Drift, Notice, and Skipped; Area 5 will document Readiness, including Unknown results.
 
 ## What lemonpi doesn't do
 
@@ -87,7 +87,19 @@ lemonpi has no package-removal command. To remove a Managed package, run `pi rem
 
 ## Owned config
 
-> **Placeholder — Area 3:** this section will be completed by the Owned config area.
+lemonpi owns these settings and files under your Pi agent directory:
+
+- The default model `claude-code/claude-opus-5-5`: only `defaultProvider` and `defaultModel` in `settings.json`.
+- The five subagent definitions: `agents/explorer.md`, `agents/implementer.md`, `agents/merger.md`, `agents/researcher.md`, and `agents/reviewer.md`.
+- The pi-footer config: `extensions/pi-footer.json`.
+
+Every other setting and file is never touched or reported. `install` and `update` restore owned items without asking; `status` reports them as **Drift** when missing or different from what lemonpi ships, without showing a diff.
+
+Changes made through pi-footer's `/footer` UI, or by editing the agent files, are reverted by the next `install` or `update`. Make those changes in the lemonpi repo instead.
+
+Before rewriting an existing file that differs, lemonpi backs it up under `<agentDir>/lemonpi-backups/<timestamp>/`, with one folder per run. Backups are never pruned or printed. Symlinked files are written through and the link is kept. Files lemonpi stops shipping stay as your files.
+
+`--skip footer` holds back only the package, not its config.
 
 ## Private skills
 
