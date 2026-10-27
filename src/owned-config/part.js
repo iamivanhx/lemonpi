@@ -149,6 +149,7 @@ async function installDefaultModel(ctx, descriptor, backupStamp) {
   if (result.type === 'write-failed') {
     return actionFailure(descriptor, result.error?.code, ctx.env);
   }
+  if (result.type === 'interrupted') return null;
   return action(descriptor, 'changed', 'set to claude-code/claude-opus-5-5', ctx.env);
 }
 
@@ -202,6 +203,7 @@ async function installShippedFile(ctx, descriptor, backupStamp) {
   if (result.type === 'write-failed') {
     return actionFailure(descriptor, result.error?.code, ctx.env);
   }
+  if (result.type === 'interrupted') return null;
   return action(descriptor, 'changed', existing ? 'restored shipped version' : 'added', ctx.env);
 }
 
@@ -276,9 +278,10 @@ export const ownedConfigPart = Object.freeze({
       };
       for (const descriptor of ownedConfig) {
         if (ctx.signal.aborted) break;
-        items.push(descriptor.kind === 'default-model'
+        const result = descriptor.kind === 'default-model'
           ? await installDefaultModel(ctx, descriptor, backupStamp)
-          : await installShippedFile(ctx, descriptor, backupStamp));
+          : await installShippedFile(ctx, descriptor, backupStamp);
+        if (result !== null) items.push(result);
       }
       return items;
     }

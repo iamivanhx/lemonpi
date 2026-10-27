@@ -12,7 +12,7 @@ import {
   writeFile as writeFileOnFs,
 } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, parse, resolve, sep } from 'node:path';
 import { checkNodeVersion } from '../src/prerequisites.js';
 import { runner } from './runner.js';
 
@@ -38,9 +38,9 @@ async function realpathIncludingDangling(path) {
     if (error.code !== 'ENOENT') throw error;
   }
 
-  const absolutePath = resolve(path);
+  const absolutePath = isAbsolute(path) ? path : `${process.cwd()}${sep}${path}`;
   let current = parse(absolutePath).root;
-  let pending = relative(current, absolutePath).split(sep).filter(Boolean);
+  let pending = absolutePath.slice(current.length).split(sep).filter(Boolean);
   let followedLinks = 0;
 
   while (pending.length > 0) {
@@ -66,9 +66,10 @@ async function realpathIncludingDangling(path) {
       throw error;
     }
     const target = await readlinkOnFs(candidate);
-    const targetPath = isAbsolute(target) ? resolve(target) : resolve(dirname(candidate), target);
-    current = parse(targetPath).root;
-    pending = relative(current, targetPath).split(sep).filter(Boolean).concat(pending);
+    // Expand each link before processing later components, especially `..`.
+    const root = parse(target).root;
+    if (isAbsolute(target)) current = root;
+    pending = target.slice(root.length).split(sep).filter(Boolean).concat(pending);
   }
 
   return current;

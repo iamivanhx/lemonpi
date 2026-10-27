@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
 import { run } from '../src/cli.js';
+import { catalog } from '../src/packages/catalog.js';
 
 const shippedFiles = [
   'agents/explorer.md',
@@ -622,6 +623,73 @@ test('install writes settings through a symlink, keeps the link and target mode,
   );
 });
 
+test('settings and backup temporary files are private at creation and retain their final modes', async (t) => {
+  const previousUmask = process.umask(0o022);
+  try {
+    for (const finalMode of [0o600, 0o640, 0o644]) {
+      const fake = createFakeHost(t);
+      await seedShippedFiles(fake);
+      const link = join(fake.piCodingAgentDir, 'settings.json');
+      const target = join(fake.home, 'dotfiles/settings.json');
+      await mkdir(join(target, '..'), { recursive: true, mode: 0o755 });
+      const oldSettings = {
+        defaultProvider: 'openai-codex',
+        defaultModel: 'gpt-6-luna',
+        packages: catalog.map(({ source }) => source),
+        proxy: 'https://user:private-password@proxy.example',
+      };
+      const oldBytes = Buffer.from(`${JSON.stringify(oldSettings)}\n`);
+      await writeFile(target, oldBytes, { mode: finalMode });
+      await symlink(target, link);
+      const created = [];
+      const originalWrite = fake.host.writeFile;
+      fake.host.writeFile = async (path, bytes, options) => {
+        await originalWrite(path, bytes, options);
+        // Observe the file before atomicWrite can chmod or rename it.
+        created.push({ path, mode: (await stat(path)).mode & 0o777 });
+      };
+
+      const code = await run(['install'], fake.host);
+
+      assert.equal(code, 0, fake.stdout.text);
+      assert.equal(created.length, 2, 'one backup and one settings temporary file');
+      for (const { path, mode } of created) assert.equal(mode, 0o600, path);
+      assert.equal((await stat(target)).mode & 0o777, finalMode);
+      assert.equal((await lstat(link)).isSymbolicLink(), true);
+      assert.equal((await fake.readGlobalSettings()).proxy, oldSettings.proxy);
+      const backup = join(fake.piCodingAgentDir, 'lemonpi-backups/2026-10-26T12-00-00.000Z/settings.json');
+      assert.equal((await stat(backup)).mode & 0o777, 0o600);
+      assert.deepEqual(await readFile(backup), oldBytes);
+    }
+  } finally {
+    process.umask(previousUmask);
+  }
+});
+
+test('new owned files retain the default final mode after private temporary creation', async (t) => {
+  const previousUmask = process.umask(0o022);
+  try {
+    const fake = createFakeHost(t);
+    const created = [];
+    const originalWrite = fake.host.writeFile;
+    fake.host.writeFile = async (path, bytes, options) => {
+      await originalWrite(path, bytes, options);
+      created.push((await stat(path)).mode & 0o777);
+    };
+
+    const code = await run(['install'], fake.host);
+
+    assert.equal(code, 0, fake.stdout.text);
+    assert.equal(created.length, 7);
+    assert.deepEqual(created, Array(7).fill(0o600));
+    for (const path of ['settings.json', ...shippedFiles]) {
+      assert.equal((await stat(join(fake.piCodingAgentDir, path))).mode & 0o777, 0o644, path);
+    }
+  } finally {
+    process.umask(previousUmask);
+  }
+});
+
 test('update rewrites BOM-prefixed settings without the BOM and preserves unowned values', async (t) => {
   const fake = createFakeHost(t);
   const oldSettings = {
@@ -804,6 +872,36 @@ test('install --skip footer still writes the footer config and skips only the pa
     await readFile(new URL('../src/owned-config/shipped-content/extensions/pi-footer.json', import.meta.url)),
   );
 });
+
+for (const command of ['install', 'update']) {
+  for (const relativePath of ['settings.json', 'agents/explorer.md']) {
+    test(`${command} cancelled during the ${relativePath} backup leaves the target unchanged and starts no new writes`, async (t) => {
+      const fake = createFakeHost(t, { abortAfterRenames: 1 });
+      await seedShippedFiles(fake);
+      await fake.writeGlobalSettings({
+        defaultProvider: relativePath === 'settings.json' ? 'openai-codex' : 'claude-code',
+        defaultModel: relativePath === 'settings.json' ? 'gpt-6-luna' : 'claude-opus-5-5',
+        packages: catalog.map(({ source }) => source),
+      });
+      const target = join(fake.piCodingAgentDir, relativePath);
+      if (relativePath !== 'settings.json') await writeFile(target, 'local edit before cancellation');
+      const before = await readFile(target);
+      const hostWrites = observeHostWrites(fake);
+
+      const code = await run([command], fake.host);
+
+      assert.equal(code, 130, fake.stdout.text);
+      assert.deepEqual(await readFile(target), before);
+      const backup = join(fake.piCodingAgentDir, 'lemonpi-backups/2026-10-26T12-00-00.000Z', relativePath);
+      assert.deepEqual(await readFile(backup), before, 'the in-progress backup may finish');
+      const firstRename = hostWrites.findIndex(({ name }) => name === 'rename');
+      assert.notEqual(firstRename, -1);
+      assert.deepEqual(hostWrites.slice(firstRename + 1), [], 'no new write operation starts after cancellation');
+      assert.doesNotMatch(fake.stdout.text, /set to claude-code\/claude-opus-5-5|restored shipped version/);
+      assert.match(fake.stdout.text, /Result: interrupted — exit 130/);
+    });
+  }
+}
 
 test('abort after the first owned rename leaves only the default-model write and no temp file', async (t) => {
   const fake = createFakeHost(t, { abortAfterRenames: 1 });
