@@ -29,7 +29,7 @@ Whether a component lemonpi configures can actually be used on this machine, jud
 _Avoid_: health, availability
 
 **Unknown**:
-A readiness state meaning a check could not be verified safely; it is never counted as ready or as failed.
+An outcome meaning a readiness check could not be verified safely, or a settings-dependent inventory item cannot be determined because of unreadable Pi settings. An unknown readiness check is never counted as ready or as failed.
 _Avoid_: skipped, indeterminate
 
 **Skipped**:
