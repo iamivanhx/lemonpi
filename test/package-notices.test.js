@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
+import { seedOwnedConfigFixture } from './helpers/owned-config-fixture.js';
 import { run } from '../src/cli.js';
 
 const managedSources = [
@@ -132,6 +133,7 @@ test('dry-run reports required and optional duplicates as failed without package
 test('project-scope declarations are notices while the global package remains installed', async (t) => {
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({ packages: managedSources });
+  await seedOwnedConfigFixture(fake);
   await fake.writeProjectSettings({ packages: ['npm:pi-footer'] });
   const projectPath = join(fake.cwd, '.pi', 'settings.json');
   const before = await readFile(projectPath);
@@ -177,6 +179,7 @@ test('unmanaged URL notices redact credentials and environment secrets', async (
   const secretSource = `git:github.com/${secret}/extension`;
   const packages = [...managedSources, source, secretSource];
   await fake.writeGlobalSettings({ packages });
+  await seedOwnedConfigFixture(fake);
 
   const code = await run(['status'], fake.host);
 
@@ -211,6 +214,7 @@ test('project notices remain readable when global settings are unparseable', asy
 test('unparseable project settings are silently ignored', async (t) => {
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({ packages: managedSources });
+  await seedOwnedConfigFixture(fake);
   await fake.writeProjectSettings({ packages: [] });
   const projectPath = join(fake.cwd, '.pi', 'settings.json');
   await writeFile(projectPath, '{"packages": [');
@@ -243,6 +247,7 @@ test('status reports unmanaged declarations without changing their settings posi
     ...managedSources.slice(4),
   ];
   await fake.writeGlobalSettings({ packages });
+  await seedOwnedConfigFixture(fake);
 
   const statusCode = await run(['status'], fake.host);
   const doctorCode = await run(['doctor'], fake.host);

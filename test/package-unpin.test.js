@@ -85,7 +85,11 @@ test('install --skip leaves a pinned package unchanged without a package call', 
 test('install dry-run previews unpinning without Pi package calls or fixture changes', async (t) => {
   const fake = createFakeHost(t);
   const packages = [...managedSources.slice(0, -1), 'npm:@heyhuynhgiabuu/pi-pretty@0.6.29'];
-  await fake.writeGlobalSettings({ packages });
+  await fake.writeGlobalSettings({
+    packages,
+    defaultProvider: 'claude-code',
+    defaultModel: 'claude-opus-5-5',
+  });
   const before = await fake.readGlobalSettings();
 
   const code = await run(['install', '--dry-run'], fake.host);
@@ -219,6 +223,8 @@ test('install unpins a pinned npm declaration in place through canonical Pi inst
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({
     packages: [...managedSources.slice(0, -1), 'npm:@heyhuynhgiabuu/pi-pretty@0.6.29'],
+    defaultProvider: 'claude-code',
+    defaultModel: 'claude-opus-5-5',
   });
 
   const code = await run(['install'], fake.host);
@@ -226,7 +232,7 @@ test('install unpins a pinned npm declaration in place through canonical Pi inst
   assert.deepEqual(fake.runnerCalls.slice(1).map(({ command, args }) => [command, args]), [
     ['pi', ['install', 'npm:@heyhuynhgiabuu/pi-pretty', '--no-approve']],
   ]);
-  assert.deepEqual(await fake.readGlobalSettings(), { packages: managedSources });
+  assert.deepEqual((await fake.readGlobalSettings()).packages, managedSources);
   assert.equal(code, 0);
 });
 

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { catalog } from '../src/packages/catalog.js';
 
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const bin = fileURLToPath(new URL('../bin/lemonpi.js', import.meta.url));
@@ -29,6 +30,51 @@ test('bin refuses Node 20.9.0 before loading unsupported CLI syntax', {
   assert.equal(result.stdout, '');
   assert.match(result.stderr, /^Node 20\.9\.0 is not supported; lemonpi requires Node 22\.19\.0 or newer\n$/);
 });
+
+for (const absoluteTarget of [false, true]) {
+  test(`bin resolves a dangling ${absoluteTarget ? 'absolute' : 'relative'} symlink target through a symlink before ..`, async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), 'lemonpi-bin-symlink-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const agentDir = join(directory, '.pi/agent');
+    const agents = join(agentDir, 'agents');
+    const dotfiles = join(directory, 'dotfiles');
+    await mkdir(agents, { recursive: true });
+    await mkdir(join(dotfiles, 'subdir'), { recursive: true });
+    await writeFile(join(agentDir, 'settings.json'), JSON.stringify({
+      defaultProvider: 'claude-code',
+      defaultModel: 'claude-opus-5-5',
+      packages: catalog.map(({ source }) => source),
+    }));
+    const fakePi = join(directory, 'pi');
+    await writeFile(fakePi, '#!/bin/sh\n[ "$1" = "--version" ] || exit 1\nprintf "Pi 1.4.0\\n"\n', { mode: 0o755 });
+    await symlink(join(dotfiles, 'subdir'), join(agents, 'redirect'));
+    const link = join(agents, 'explorer.md');
+    const linkTarget = `${absoluteTarget ? `${agents}/` : ''}redirect/../local.md`;
+    await symlink(linkTarget, link);
+    const unrelated = join(agents, 'local.md');
+    await writeFile(unrelated, 'unowned local file');
+
+    const result = spawnSync(process.execPath, [bin, 'install'], {
+      cwd: directory,
+      env: {
+        ...process.env,
+        HOME: directory,
+        PI_CODING_AGENT_DIR: agentDir,
+        PATH: `${directory}:${process.env.PATH ?? ''}`,
+      },
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const shipped = await readFile(new URL('../src/owned-config/shipped-content/agents/explorer.md', import.meta.url));
+    assert.deepEqual(await readFile(join(dotfiles, 'local.md')), shipped);
+    assert.deepEqual(await readFile(link), shipped);
+    assert.equal((await lstat(link)).isSymbolicLink(), true);
+    assert.equal(await readlink(link), linkTarget);
+    assert.equal(await readFile(unrelated, 'utf8'), 'unowned local file');
+    await assert.rejects(access(join(agentDir, 'lemonpi-backups')), { code: 'ENOENT' });
+  });
+}
 
 for (const [interruptSignal, expectedCode, descendant] of [
   ['SIGINT', 130, false],

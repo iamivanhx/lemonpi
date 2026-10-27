@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "enabled": true,
+  "preset": "default",
+  "separator": "pipe",
+  "separatorFg": "brightBlack",
+  "separatorBg": "default",
+  "iconMode": "emoji",
+  "minimalist": false,
+  "terminal": {
+    "widthMode": "full",
+    "colorLevel": "truecolor"
+  },
+  "extensionStatusRow": {
+    "hiddenKeys": [],
+    "knownKeys": []
+  },
+  "lines": [
+    [
+      {
+        "id": "repo-name",
+        "type": "git-root",
+        "enabled": true,
+        "options": {
+          "raw": true,
+          "hideWhenEmpty": true,
+          "icon": "",
+          "text": "",
+          "fg": "yellow",
+          "bg": "default",
+          "bold": true
+        }
+      },
+      {
+        "id": "git-branch",
+        "type": "git-branch",
+        "enabled": true,
+        "options": {
+          "raw": false,
+          "hideWhenEmpty": true,
+          "icon": "🌿 ",
+          "text": "",
+          "fg": "cyan",
+          "bg": "default",
+          "bold": true,
+          "gitBranchDisplayStyle": "round-brackets",
+          "surroundLeft": "",
+          "surroundRight": ""
+        }
+      },
+      {
+        "id": "context-bar",
+        "type": "context-bar",
+        "enabled": true,
+        "options": {
+          "raw": true,
+          "hideWhenEmpty": false,
+          "icon": "",
+          "text": "",
+          "fg": "green",
+          "bg": "default",
+          "bold": false,
+          "tokenFormatStyle": "compact",
+          "contextBarMode": "default",
+          "contextConditionalColors": true,
+          "contextWarningPercent": 70,
+          "contextDangerPercent": 90,
+          "warningFg": "yellow",
+          "warningBg": "default",
+          "dangerFg": "red",
+          "dangerBg": "default"
+        }
+      },
+      {
+        "id": "session-cost",
+        "type": "cost",
+        "enabled": true,
+        "options": {
+          "raw": true,
+          "hideWhenEmpty": false,
+          "icon": "",
+          "text": "",
+          "fg": "yellow",
+          "bg": "default",
+          "bold": false,
+          "costFormatStyle": "default",
+          "showSubscription": false
+        }
+      },
+      {
+        "id": "lines-added",
+        "type": "git-insertions",
+        "enabled": true,
+        "options": {
+          "raw": false,
+          "hideWhenZero": true,
+          "icon": "+",
+          "text": "",
+          "fg": "green",
+          "bg": "default",
+          "bold": false
+        }
+      },
+      {
+        "id": "lines-removed",
+        "type": "git-deletions",
+        "enabled": true,
+        "options": {
+          "raw": false,
+          "hideWhenZero": true,
+          "icon": "-",
+          "text": "",
+          "fg": "red",
+          "bg": "default",
+          "bold": false
+        }
+      },
+      {
+        "id": "model-name",
+        "type": "model",
+        "enabled": true,
+        "options": {
+          "raw": false,
+          "icon": "🤖 ",
+          "fg": "magenta",
+          "bg": "default",
+          "bold": false,
+          "showProvider": false
+        }
+      },
+      {
+        "id": "thinking-level",
+        "type": "thinking-level",
+        "enabled": true,
+        "options": {
+          "raw": false,
+          "hideWhenEmpty": true,
+          "icon": "🧠 ",
+          "text": "",
+          "fg": "magenta",
+          "bg": "default",
+          "bold": false
+        }
+      }
+    ]
+  ]
+}

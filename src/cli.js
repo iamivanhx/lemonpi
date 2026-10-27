@@ -5,8 +5,9 @@ import { checkPrerequisites } from './prerequisites.js';
 import { renderExceptionsSummary, renderInventorySummary, renderMinimalSummary } from './summary.js';
 import { packageIds } from './packages/catalog.js';
 import { packagesPart } from './packages/part.js';
+import { ownedConfigPart } from './owned-config/part.js';
 
-const BUILT_IN_PARTS = Object.freeze([packagesPart]);
+const BUILT_IN_PARTS = Object.freeze([packagesPart, ownedConfigPart]);
 const COMMANDS = new Set(['install', 'update', 'status', 'doctor', 'skills']);
 const COMMAND_FLAGS = {
   install: ['--dry-run', '--skip', '--skip-skills'],
@@ -146,6 +147,18 @@ export async function run(argv, host, options = {}) {
   }
   const dryRun = parsed.values['dry-run'] ?? false;
 
+  const agentDir = host.env.PI_CODING_AGENT_DIR ?? join(host.env.HOME, '.pi', 'agent');
+  let settingsExistedAtCommandEntry = false;
+  if ((command === 'install' || command === 'update') && !host.signal.aborted) {
+    try {
+      const settingsFacts = await host.stat(join(agentDir, 'settings.json'));
+      settingsExistedAtCommandEntry = settingsFacts?.notFound !== true;
+    } catch {
+      // If presence cannot be established safely, prefer preserving a possible old file.
+      settingsExistedAtCommandEntry = true;
+    }
+  }
+
   const prerequisites = host.signal.aborted
     ? {
       ok: false,
@@ -175,10 +188,21 @@ export async function run(argv, host, options = {}) {
       flags,
       dryRun,
       env: host.env,
-      agentDir: host.env.PI_CODING_AGENT_DIR ?? join(host.env.HOME, '.pi', 'agent'),
+      agentDir,
+      settingsExistedAtCommandEntry,
       cwd: host.cwd,
       tmpdir: host.tmpdir,
       readFile: host.readFile,
+      readBytes: host.readBytes,
+      lstat: host.lstat,
+      stat: host.stat,
+      realpath: host.realpath,
+      mkdir: host.mkdir,
+      writeFile: host.writeFile,
+      rename: host.rename,
+      rm: host.rm,
+      chmod: host.chmod,
+      now: host.now,
       piVersion: prerequisites.pi.version,
       runner: host.runner,
       signal: host.signal,
