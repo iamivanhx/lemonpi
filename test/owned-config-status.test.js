@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
 import { run } from '../src/cli.js';
+import { mergeModelsConfig } from '../src/owned-config/models-config.js';
 
 const shippedFiles = [
   'agents/explorer.md',
@@ -16,6 +17,7 @@ const shippedFiles = [
 
 const ownedItems = [
   'default model (claude-code/claude-opus-5-5)',
+  'OpenAI models (models.json)',
   ...shippedFiles,
 ];
 const managedPackages = [
@@ -36,6 +38,7 @@ async function seedOwnedConfig(fake, settings = {}) {
     packages: managedPackages,
     ...settings,
   });
+  await writeFile(join(fake.piCodingAgentDir, 'models.json'), `${JSON.stringify(mergeModelsConfig({}), null, 2)}\n`);
   for (const path of shippedFiles) {
     const contents = await readFile(new URL(`../src/owned-config/shipped-content/${path}`, import.meta.url));
     const target = join(fake.piCodingAgentDir, path);

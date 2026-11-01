@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { mergeModelsConfig } from '../../src/owned-config/models-config.js';
 
 const shippedFiles = [
   'agents/explorer.md',
@@ -19,6 +20,7 @@ export async function seedOwnedConfigFixture(fake, { defaultModel = true } = {})
       defaultModel: 'claude-opus-5-5',
     });
   }
+  await writeFile(join(fake.piCodingAgentDir, 'models.json'), `${JSON.stringify(mergeModelsConfig({}), null, 2)}\n`);
   for (const path of shippedFiles) {
     const contents = await readFile(new URL(`../../src/owned-config/shipped-content/${path}`, import.meta.url));
     const target = join(fake.piCodingAgentDir, path);

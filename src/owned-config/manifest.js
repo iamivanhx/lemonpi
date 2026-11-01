@@ -14,6 +14,11 @@ export const ownedConfig = Object.freeze([
     defaultProvider: 'claude-code',
     defaultModel: 'claude-opus-5-5',
   }),
+  Object.freeze({
+    kind: 'models-config',
+    name: 'OpenAI models (models.json)',
+    path: 'models.json',
+  }),
   ...shippedFiles.map((path) => Object.freeze({
     kind: 'shipped-file',
     name: path,
