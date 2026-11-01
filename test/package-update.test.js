@@ -8,7 +8,7 @@ import { run } from '../src/cli.js';
 const managedSources = [
   'npm:@tintinweb/pi-subagents',
   'git:github.com/earendil-works/pi-review',
-  'npm:@juicesharp/rpiv-todo',
+  'npm:@tintinweb/pi-tasks',
   'git:github.com/earendil-works/pi-claude-code',
   'npm:@juicesharp/rpiv-ask-user-question',
   'npm:pi-web-access',

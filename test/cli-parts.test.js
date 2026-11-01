@@ -237,7 +237,7 @@ test('parts receive parsed context and the injected agent directory', async (t) 
   const fallback = createFakeHost(t, { runnerResults: [passingPi] });
   delete fallback.host.env.PI_CODING_AGENT_DIR;
 
-  await run(['install', '--skip', 'todo,pretty', '--skip-skills', '--dry-run'], configured.host, { parts: [part] });
+  await run(['install', '--skip', 'tasks,pretty', '--skip-skills', '--dry-run'], configured.host, { parts: [part] });
   await run(['install'], fallback.host, { parts: [part] });
 
   assert.deepEqual(contexts.map(({ command, flags, dryRun, agentDir, piVersion, runner, signal }) => ({
@@ -245,7 +245,7 @@ test('parts receive parsed context and the injected agent directory', async (t) 
   })), [
     {
       command: 'install',
-      flags: { skip: ['todo', 'pretty'], skipSkills: true },
+      flags: { skip: ['tasks', 'pretty'], skipSkills: true },
       dryRun: true,
       agentDir: '/configured/pi-agent',
       piVersion: '1.4.0',

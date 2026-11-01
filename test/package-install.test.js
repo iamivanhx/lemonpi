@@ -8,7 +8,7 @@ import { run } from '../src/cli.js';
 const catalogSources = [
   'npm:@tintinweb/pi-subagents',
   'git:github.com/earendil-works/pi-review',
-  'npm:@juicesharp/rpiv-todo',
+  'npm:@tintinweb/pi-tasks',
   'git:github.com/earendil-works/pi-claude-code',
   'npm:@juicesharp/rpiv-ask-user-question',
   'npm:pi-web-access',
@@ -58,7 +58,7 @@ test('unknown skip IDs are rejected before all runner calls and list catalog IDs
 
   assert.equal(code, 2);
   assert.match(fake.stderr.text, /nope/);
-  for (const id of ['subagents', 'review', 'todo', 'claude-code', 'ask-user', 'web-access', 'footer', 'pretty']) {
+  for (const id of ['subagents', 'review', 'tasks', 'claude-code', 'ask-user', 'web-access', 'footer', 'pretty']) {
     assert.ok(fake.stderr.text.includes(id), `${id} appears in the allowed ID list`);
   }
   assert.deepEqual(fake.runnerCalls, []);
@@ -68,19 +68,19 @@ test('skip leaves optional and required packages alone and never causes drift fa
   const fake = createFakeHost(t);
   await fake.writeGlobalSettings({ packages: [] });
 
-  const skippedOptionalCode = await run(['install', '--skip', ' todo , pretty '], fake.host);
+  const skippedOptionalCode = await run(['install', '--skip', ' tasks , pretty '], fake.host);
 
   assert.equal(skippedOptionalCode, 0);
   assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args[1]),
     catalogSources.filter((_, index) => ![2, 7].includes(index)));
   assert.match(fake.stdout.text, /Skipped:/);
-  assert.ok(fake.stdout.text.includes('todo (npm:@juicesharp/rpiv-todo): held back by --skip'));
+  assert.ok(fake.stdout.text.includes('tasks (npm:@tintinweb/pi-tasks): held back by --skip'));
   assert.ok(fake.stdout.text.includes('pretty (npm:@heyhuynhgiabuu/pi-pretty): held back by --skip'));
 
   const required = createFakeHost(t);
   await required.writeGlobalSettings({ packages: catalogSources.slice(4) });
   const skippedRequiredCode = await run(
-    ['install', '--skip', 'subagents,review,todo,claude-code'],
+    ['install', '--skip', 'subagents,review,tasks,claude-code'],
     required.host,
   );
 
@@ -90,7 +90,7 @@ test('skip leaves optional and required packages alone and never causes drift fa
   for (const [id, source] of [
     ['subagents', catalogSources[0]],
     ['review', catalogSources[1]],
-    ['todo', catalogSources[2]],
+    ['tasks', catalogSources[2]],
     ['claude-code', catalogSources[3]],
   ]) {
     assert.ok(required.stdout.text.includes(`${id} (${source}): held back by --skip`));
@@ -304,7 +304,7 @@ test('install continues after required and optional failures and sanitizes all P
   assert.match(fake.stdout.text, /optional package stderr/);
   assert.doesNotMatch(fake.stdout.text, new RegExp(outputSecret));
   assert.match(fake.stdout.text, /Changed:/);
-  assert.match(fake.stdout.text, /npm:@juicesharp\/rpiv-todo\): installed/);
+  assert.match(fake.stdout.text, /npm:@tintinweb\/pi-tasks\): installed/);
 
   const optional = createFakeHost(t, {
     fakePi: {

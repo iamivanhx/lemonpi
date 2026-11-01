@@ -8,7 +8,7 @@ import { run } from '../src/cli.js';
 const managedSources = [
   'npm:@tintinweb/pi-subagents',
   'git:github.com/earendil-works/pi-review',
-  'npm:@juicesharp/rpiv-todo',
+  'npm:@tintinweb/pi-tasks',
   'git:github.com/earendil-works/pi-claude-code',
   'npm:@juicesharp/rpiv-ask-user-question',
   'npm:pi-web-access',
@@ -480,4 +480,32 @@ test('install verifies the replacement before removing the replaced package', as
   assert.ok(fake.stdout.text.includes(
     `subagents (${replacementSource}): migrated ${replacedSource} → ${replacementSource}`,
   ));
+});
+
+test('install migrates rpiv-todo to pi-tasks and names it in status and output', async (t) => {
+  const legacyTodo = 'npm:@juicesharp/rpiv-todo';
+  const tasksSource = managedSources[2];
+  const configured = [...managedSources.slice(0, 2), legacyTodo, ...managedSources.slice(3)];
+
+  const status = createFakeHost(t);
+  await status.writeGlobalSettings({ packages: configured });
+  assert.equal(await run(['status'], status.host), 1);
+  assert.ok(status.stdout.text.includes(
+    `tasks (${tasksSource}): drift — ${legacyTodo} still declared — \`install\` migrates it`,
+  ));
+
+  const fake = createFakeHost(t);
+  await fake.writeGlobalSettings({ packages: configured });
+
+  const code = await run(['install'], fake.host);
+
+  assert.equal(code, 0);
+  assert.deepEqual(fake.runnerCalls.slice(1).map(({ args }) => args), [
+    ['install', tasksSource, '--no-approve'],
+    ['remove', legacyTodo, '--no-approve'],
+  ]);
+  assert.ok(fake.stdout.text.includes(`tasks (${tasksSource}): migrated ${legacyTodo} → ${tasksSource}`));
+  const packages = (await fake.readGlobalSettings()).packages;
+  assert.ok(packages.includes(tasksSource));
+  assert.ok(!packages.includes(legacyTodo));
 });

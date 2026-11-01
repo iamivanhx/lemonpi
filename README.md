@@ -62,7 +62,7 @@ A **Managed package** is listed in lemonpi's catalog. Managed packages track the
 | --- | --- | --- |
 | `subagents` | `npm:@tintinweb/pi-subagents` | Required |
 | `review` | `git:github.com/earendil-works/pi-review` | Required |
-| `todo` | `npm:@juicesharp/rpiv-todo` | Required |
+| `tasks` | `npm:@tintinweb/pi-tasks` | Required |
 | `claude-code` | `git:github.com/earendil-works/pi-claude-code` | Required |
 | `ask-user` | `npm:@juicesharp/rpiv-ask-user-question` | Optional |
 | `web-access` | `npm:pi-web-access` | Optional |
@@ -71,10 +71,10 @@ A **Managed package** is listed in lemonpi's catalog. Managed packages track the
 
 ### What package commands do
 
-- `install` installs missing Managed packages, unpins pinned declarations, and migrates the **Replaced package** `npm:pi-subagents` to `npm:@tintinweb/pi-subagents`. Migration installs the replacement if needed, verifies its declaration, then removes the Replaced package. An already-declared replacement is kept, and other already-present unpinned Managed packages are left alone; lemonpi does not transfer fields from the different-identity Replaced package to its replacement.
+- `install` installs missing Managed packages, unpins pinned declarations, and migrates each **Replaced package** to its replacement: `npm:pi-subagents` to `npm:@tintinweb/pi-subagents`, and `npm:@juicesharp/rpiv-todo` to `npm:@tintinweb/pi-tasks`. Migration installs the replacement if needed, verifies its declaration, then removes the Replaced package. An already-declared replacement is kept, and other already-present unpinned Managed packages are left alone; lemonpi does not transfer fields from the different-identity Replaced package to its replacement.
 - Object-form package filters and `autoload` are preserved when lemonpi unpins or updates a package. During migration, filters and `autoload` already on the replacement are preserved.
 - `update` does the same reconciliation as `install`, then asks Pi to pull the latest for each eligible package, one package at a time in catalog order. A failed update is reported; lemonpi never tests package releases and never downgrades to an older release.
-- `--skip <id,…>` leaves the named package completely alone for that run. Valid IDs are `subagents`, `review`, `todo`, `claude-code`, `ask-user`, `web-access`, `footer`, and `pretty`. A **Skipped** package is never a failure. An unknown ID is a usage error and exits 2.
+- `--skip <id,…>` leaves the named package completely alone for that run. Valid IDs are `subagents`, `review`, `tasks`, `claude-code`, `ask-user`, `web-access`, `footer`, and `pretty`. A **Skipped** package is never a failure. An unknown ID is a usage error and exits 2.
 - `status` lists each Managed package once. **Drift** means a package is missing, pinned, duplicated, or has a pending migration; status exits 1 when it finds Drift. **Notices** are listed separately and do not change the exit code. A failed Required package fails the run (exit 2); a failed Optional package makes it partial (exit 1).
 
 ### Scope, notices, and removal
@@ -83,7 +83,7 @@ lemonpi manages global Pi settings only. A declaration in project settings is re
 
 The `claude-code` package is required, but the `claude` CLI and its login are Readiness concerns; lemonpi never installs the `claude` CLI or Claude Code. `web-access` is optional and comes with no provider configuration or credentials.
 
-lemonpi has no package-removal command. To remove a Managed package, run `pi remove <source>` yourself. Migration cleanup of the Replaced package after its replacement is verified is the only automatic removal.
+lemonpi has no package-removal command. To remove a Managed package, run `pi remove <source>` yourself. Migration cleanup of a Replaced package after its replacement is verified is the only automatic removal.
 
 ## Owned config
 

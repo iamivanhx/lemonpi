@@ -9,7 +9,7 @@ import { run } from '../src/cli.js';
 const managedPackages = [
   { id: 'subagents', source: 'npm:@tintinweb/pi-subagents' },
   { id: 'review', source: 'git:github.com/earendil-works/pi-review' },
-  { id: 'todo', source: 'npm:@juicesharp/rpiv-todo' },
+  { id: 'tasks', source: 'npm:@tintinweb/pi-tasks' },
   { id: 'claude-code', source: 'git:github.com/earendil-works/pi-claude-code' },
   { id: 'ask-user', source: 'npm:@juicesharp/rpiv-ask-user-question' },
   { id: 'web-access', source: 'npm:pi-web-access' },
@@ -119,7 +119,7 @@ test('managed identity recognizes npm pins and git refs as pinned drift in objec
   const packages = [
     'npm:@tintinweb/pi-subagents@^0.22.0',
     'git:github.com/earendil-works/pi-review@feature/next',
-    'npm:@juicesharp/rpiv-todo@>=2 <3',
+    'npm:@tintinweb/pi-tasks@>=2 <3',
     { source: 'git:github.com/earendil-works/pi-claude-code@v1', extensions: ['extensions/*.ts'] },
     'npm:@juicesharp/rpiv-ask-user-question@next',
     'npm:pi-web-access@1.2.3',
@@ -134,7 +134,7 @@ test('managed identity recognizes npm pins and git refs as pinned drift in objec
   for (const [id, source, pin] of [
     ['subagents', managedPackages[0].source, '^0.22.0'],
     ['review', managedPackages[1].source, 'feature/next'],
-    ['todo', managedPackages[2].source, '>=2 <3'],
+    ['tasks', managedPackages[2].source, '>=2 <3'],
     ['claude-code', managedPackages[3].source, 'v1'],
     ['ask-user', managedPackages[4].source, 'next'],
     ['web-access', managedPackages[5].source, '1.2.3'],
