@@ -91,7 +91,7 @@ test('install --dry-run previews a model set and shipped-file restore without ch
     packages: [
       'npm:@tintinweb/pi-subagents',
       'git:github.com/earendil-works/pi-review',
-      'npm:@juicesharp/rpiv-todo',
+      'npm:@tintinweb/pi-tasks',
       'git:github.com/earendil-works/pi-claude-code',
       'npm:@juicesharp/rpiv-ask-user-question',
       'npm:pi-web-access',
@@ -218,7 +218,7 @@ test('install sets the default model after Pi writes packages without backing up
   assert.deepEqual(settings.packages, [
     'npm:@tintinweb/pi-subagents',
     'git:github.com/earendil-works/pi-review',
-    'npm:@juicesharp/rpiv-todo',
+    'npm:@tintinweb/pi-tasks',
     'git:github.com/earendil-works/pi-claude-code',
     'npm:@juicesharp/rpiv-ask-user-question',
     'npm:pi-web-access',
@@ -260,7 +260,7 @@ test('install changes only the primary-machine default model keys and backs up t
     packages: [
       'npm:@tintinweb/pi-subagents',
       'git:github.com/earendil-works/pi-review',
-      'npm:@juicesharp/rpiv-todo',
+      'npm:@tintinweb/pi-tasks',
       'git:github.com/earendil-works/pi-claude-code',
       'npm:@juicesharp/rpiv-ask-user-question',
       'npm:pi-web-access',
@@ -317,7 +317,7 @@ test('install leaves an already-correct default model untouched and appends miss
     packages: [
       'npm:@tintinweb/pi-subagents',
       'git:github.com/earendil-works/pi-review',
-      'npm:@juicesharp/rpiv-todo',
+      'npm:@tintinweb/pi-tasks',
       'git:github.com/earendil-works/pi-claude-code',
       'npm:@juicesharp/rpiv-ask-user-question',
       'npm:pi-web-access',
@@ -596,7 +596,7 @@ test('install writes settings through a symlink, keeps the link and target mode,
     packages: [
       'npm:@tintinweb/pi-subagents',
       'git:github.com/earendil-works/pi-review',
-      'npm:@juicesharp/rpiv-todo',
+      'npm:@tintinweb/pi-tasks',
       'git:github.com/earendil-works/pi-claude-code',
       'npm:@juicesharp/rpiv-ask-user-question',
       'npm:pi-web-access',
@@ -702,7 +702,7 @@ test('update rewrites BOM-prefixed settings without the BOM and preserves unowne
     packages: [
       'npm:@tintinweb/pi-subagents',
       'git:github.com/earendil-works/pi-review',
-      'npm:@juicesharp/rpiv-todo',
+      'npm:@tintinweb/pi-tasks',
       'git:github.com/earendil-works/pi-claude-code',
       'npm:@juicesharp/rpiv-ask-user-question',
       'npm:pi-web-access',
@@ -744,7 +744,7 @@ test('a settings write failure names settings.json, keeps restoring shipped file
     packages: [
       'npm:@tintinweb/pi-subagents',
       'git:github.com/earendil-works/pi-review',
-      'npm:@juicesharp/rpiv-todo',
+      'npm:@tintinweb/pi-tasks',
       'git:github.com/earendil-works/pi-claude-code',
       'npm:@juicesharp/rpiv-ask-user-question',
       'npm:pi-web-access',

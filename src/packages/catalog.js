@@ -13,10 +13,11 @@ const entries = [
     alternatives: [],
   },
   {
-    id: 'todo',
-    source: 'npm:@juicesharp/rpiv-todo',
+    id: 'tasks',
+    source: 'npm:@tintinweb/pi-tasks',
     required: true,
-    alternatives: ['git:github.com/juicesharp/rpiv-mono'],
+    replaces: ['npm:@juicesharp/rpiv-todo'],
+    alternatives: ['git:github.com/tintinweb/pi-tasks'],
   },
   {
     id: 'claude-code',

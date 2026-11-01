@@ -5,7 +5,7 @@ import { test } from 'node:test';
 const packages = [
   ['subagents', 'npm:@tintinweb/pi-subagents', 'Required'],
   ['review', 'git:github.com/earendil-works/pi-review', 'Required'],
-  ['todo', 'npm:@juicesharp/rpiv-todo', 'Required'],
+  ['tasks', 'npm:@tintinweb/pi-tasks', 'Required'],
   ['claude-code', 'git:github.com/earendil-works/pi-claude-code', 'Required'],
   ['ask-user', 'npm:@juicesharp/rpiv-ask-user-question', 'Optional'],
   ['web-access', 'npm:pi-web-access', 'Optional'],

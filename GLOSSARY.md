@@ -13,7 +13,7 @@ Any other package declared in Pi's settings, which lemonpi preserves and reports
 _Avoid_: unknown package, foreign package
 
 **Replaced package**:
-A package that a managed package supersedes (today `npm:pi-subagents`, superseded by tintinweb subagents), which lemonpi removes only after the replacement is declared.
+A package that a managed package supersedes (today `npm:pi-subagents`, superseded by tintinweb subagents, and `npm:@juicesharp/rpiv-todo`, superseded by tintinweb tasks), which lemonpi removes only after the replacement is declared.
 _Avoid_: legacy package, old package
 
 **Drift**:

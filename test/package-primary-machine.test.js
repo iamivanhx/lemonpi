@@ -7,7 +7,7 @@ import { seedOwnedConfigFixture } from './helpers/owned-config-fixture.js';
 import { run } from '../src/cli.js';
 
 const primaryMachinePackages = [
-  'npm:@juicesharp/rpiv-todo',
+  'npm:@tintinweb/pi-tasks',
   'npm:pi-footer',
   'npm:@heyhuynhgiabuu/pi-pretty@0.6.29',
   'git:github.com/earendil-works/pi-review',
@@ -36,7 +36,7 @@ const primaryMachineSettings = {
 const catalog = [
   ['subagents', 'npm:@tintinweb/pi-subagents'],
   ['review', 'git:github.com/earendil-works/pi-review'],
-  ['todo', 'npm:@juicesharp/rpiv-todo'],
+  ['tasks', 'npm:@tintinweb/pi-tasks'],
   ['claude-code', 'git:github.com/earendil-works/pi-claude-code'],
   ['ask-user', 'npm:@juicesharp/rpiv-ask-user-question'],
   ['web-access', 'npm:pi-web-access'],
