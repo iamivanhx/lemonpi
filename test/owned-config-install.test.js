@@ -16,6 +16,7 @@ import {
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
+import { seedOwnedConfigFixture } from './helpers/owned-config-fixture.js';
 import { run } from '../src/cli.js';
 import { catalog } from '../src/packages/catalog.js';
 
@@ -145,7 +146,7 @@ test('install --dry-run reports no owned changes for a fully matching machine', 
     defaultModel: 'claude-opus-5-5',
     packages: [],
   });
-  await seedShippedFiles(fake);
+  await seedOwnedConfigFixture(fake, { defaultModel: false });
   const before = await snapshotTree(fake.piCodingAgentDir);
   const hostWrites = observeHostWrites(fake);
 
@@ -153,11 +154,12 @@ test('install --dry-run reports no owned changes for a fully matching machine', 
 
   const ownedChangeLines = fake.stdout.text.split('\n').filter((line) => (
     line.includes('default model (claude-code/claude-opus-5-5)')
+    || line.includes('OpenAI models (models.json)')
     || shippedFiles.some((path) => line.includes(path))
   ));
   assert.equal(code, 0, fake.stdout.text);
   assert.deepEqual(ownedChangeLines, []);
-  assert.match(fake.stdout.text, /OK: 7 items/);
+  assert.match(fake.stdout.text, /OK: 8 items/);
   assert.deepEqual(await snapshotTree(fake.piCodingAgentDir), before);
   assert.deepEqual(hostWrites, []);
 });
@@ -300,7 +302,7 @@ test('a second install leaves shipped-file mtimes unchanged and counts all six a
   const secondCode = await run(['install'], fake.host);
 
   assert.equal(secondCode, 0);
-  assert.match(fake.stdout.text, /OK: 15 items/, fake.stdout.text);
+  assert.match(fake.stdout.text, /OK: 16 items/, fake.stdout.text);
   const after = await Promise.all(paths.map((path) => stat(path, { bigint: true })));
   assert.deepEqual(after.map(({ mtimeNs }) => mtimeNs), before.map(({ mtimeNs }) => mtimeNs));
   await assert.rejects(access(join(fake.piCodingAgentDir, 'lemonpi-backups')));
@@ -628,7 +630,7 @@ test('settings and backup temporary files are private at creation and retain the
   try {
     for (const finalMode of [0o600, 0o640, 0o644]) {
       const fake = createFakeHost(t);
-      await seedShippedFiles(fake);
+      await seedOwnedConfigFixture(fake, { defaultModel: false });
       const link = join(fake.piCodingAgentDir, 'settings.json');
       const target = join(fake.home, 'dotfiles/settings.json');
       await mkdir(join(target, '..'), { recursive: true, mode: 0o755 });
@@ -680,9 +682,9 @@ test('new owned files retain the default final mode after private temporary crea
     const code = await run(['install'], fake.host);
 
     assert.equal(code, 0, fake.stdout.text);
-    assert.equal(created.length, 7);
-    assert.deepEqual(created, Array(7).fill(0o600));
-    for (const path of ['settings.json', ...shippedFiles]) {
+    assert.equal(created.length, 8);
+    assert.deepEqual(created, Array(8).fill(0o600));
+    for (const path of ['settings.json', 'models.json', ...shippedFiles]) {
       assert.equal((await stat(join(fake.piCodingAgentDir, path))).mode & 0o777, 0o644, path);
     }
   } finally {
@@ -877,7 +879,7 @@ for (const command of ['install', 'update']) {
   for (const relativePath of ['settings.json', 'agents/explorer.md']) {
     test(`${command} cancelled during the ${relativePath} backup leaves the target unchanged and starts no new writes`, async (t) => {
       const fake = createFakeHost(t, { abortAfterRenames: 1 });
-      await seedShippedFiles(fake);
+      await seedOwnedConfigFixture(fake, { defaultModel: false });
       await fake.writeGlobalSettings({
         defaultProvider: relativePath === 'settings.json' ? 'openai-codex' : 'claude-code',
         defaultModel: relativePath === 'settings.json' ? 'gpt-6-luna' : 'claude-opus-5-5',
@@ -912,7 +914,7 @@ test('abort after the first owned rename leaves only the default-model write and
   const settings = await fake.readGlobalSettings();
   assert.equal(settings.defaultProvider, 'claude-code');
   assert.equal(settings.defaultModel, 'claude-opus-5-5');
-  for (const path of shippedFiles) {
+  for (const path of ['models.json', ...shippedFiles]) {
     await assert.rejects(access(join(fake.piCodingAgentDir, path)));
   }
   assert.deepEqual(await readdir(fake.piCodingAgentDir), ['settings.json']);

@@ -55,7 +55,7 @@ test('primary machine status shows only default-model owned drift and install re
   assert.equal(initialStatusCode, 1);
   const defaultModelDrift = 'default model (claude-code/claude-opus-5-5): drift — differs from shipped — `install` restores it';
   assert.equal(initialStatus.split(defaultModelDrift).length - 1, 1, 'default model is the only owned drift');
-  for (const path of shippedFiles) {
+  for (const path of ['OpenAI models (models.json)', ...shippedFiles]) {
     assert.equal(initialStatus.split(`${path}: ok`).length - 1, 1, `${path} is ok before install`);
   }
   const shippedFilePaths = shippedFiles.map((path) => join(fake.piCodingAgentDir, path));
@@ -96,7 +96,7 @@ test('primary machine status shows only default-model owned drift and install re
   ]);
   assert.match(installOutput, /Changed:/);
   // The changed default model is excluded from the OK count alongside three changed packages.
-  assert.match(installOutput, /OK: 11 items/);
+  assert.match(installOutput, /OK: 12 items/);
   const shippedFileStatsAfterInstall = await Promise.all(
     shippedFilePaths.map((path) => stat(path, { bigint: true })),
   );
@@ -129,7 +129,7 @@ test('primary machine status shows only default-model owned drift and install re
   const finalStatus = fake.stdout.text.slice(beforeFinalStatus.length);
 
   assert.equal(finalStatusCode, 0);
-  for (const path of ['default model (claude-code/claude-opus-5-5)', ...shippedFiles]) {
+  for (const path of ['default model (claude-code/claude-opus-5-5)', 'OpenAI models (models.json)', ...shippedFiles]) {
     const item = `${path}: ok`;
     assert.equal(finalStatus.split(item).length - 1, 1, `${path} is ok exactly once after install`);
   }

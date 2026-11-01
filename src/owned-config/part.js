@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { sanitizeDiagnostic } from '../sanitize.js';
 import { readShippedContent } from './bundled-data.js';
 import { ownedConfig } from './manifest.js';
+import { inspectModelsConfig, installModelsConfig } from './models-config.js';
 import { writeOwnedFile } from './writer.js';
 
 function item(descriptor, outcome, reason, env) {
@@ -234,6 +235,32 @@ async function inspectShippedFile(ctx, descriptor) {
   return differs(descriptor, ctx.env);
 }
 
+async function modelsConfigItem(ctx, descriptor, backupStamp) {
+  const installing = backupStamp !== undefined;
+  const result = installing
+    ? await installModelsConfig(ctx, backupStamp)
+    : await inspectModelsConfig(ctx);
+  if (result === null) return null;
+  const makeItem = installing ? action : item;
+  if (result.outcome === 'failed') {
+    if (result.unreadable || result.backup) {
+      return makeItem(descriptor, 'failed', result.backup
+        ? 'backup failed; not changed'
+        : 'models.json unreadable or invalid; not changed', ctx.env, true);
+    }
+    return installing ? actionFailure(descriptor, result.code, ctx.env) : failedFile(descriptor, result.code, ctx.env);
+  }
+  if (installing) return action(descriptor, result.outcome, result.outcome === 'changed' ? 'configured OpenAI models' : undefined, ctx.env);
+  if (result.outcome === 'ok') return item(descriptor, 'ok', undefined, ctx.env);
+  return result.missing ? missing(descriptor, ctx.env) : differs(descriptor, ctx.env);
+}
+
+async function inspectOwnedItem(ctx, descriptor) {
+  if (descriptor.kind === 'default-model') return inspectDefaultModel(ctx, descriptor);
+  if (descriptor.kind === 'models-config') return modelsConfigItem(ctx, descriptor);
+  return inspectShippedFile(ctx, descriptor);
+}
+
 function previewItem(descriptor, inspected, env) {
   if (inspected.outcome === 'ok') return action(descriptor, 'ok', undefined, env);
   if (inspected.outcome === 'unknown') return unreadableSettings(descriptor, env);
@@ -242,6 +269,9 @@ function previewItem(descriptor, inspected, env) {
   }
   if (descriptor.kind === 'default-model') {
     return action(descriptor, 'changed', 'would set to claude-code/claude-opus-5-5', env);
+  }
+  if (descriptor.kind === 'models-config') {
+    return action(descriptor, 'changed', 'would configure OpenAI models', env);
   }
   return action(
     descriptor,
@@ -252,9 +282,7 @@ function previewItem(descriptor, inspected, env) {
 }
 
 async function previewOwnedItem(ctx, descriptor) {
-  const inspected = descriptor.kind === 'default-model'
-    ? await inspectDefaultModel(ctx, descriptor)
-    : await inspectShippedFile(ctx, descriptor);
+  const inspected = await inspectOwnedItem(ctx, descriptor);
   return previewItem(descriptor, inspected, ctx.env);
 }
 
@@ -280,15 +308,15 @@ export const ownedConfigPart = Object.freeze({
         if (ctx.signal.aborted) break;
         const result = descriptor.kind === 'default-model'
           ? await installDefaultModel(ctx, descriptor, backupStamp)
-          : await installShippedFile(ctx, descriptor, backupStamp);
+          : descriptor.kind === 'models-config'
+            ? await modelsConfigItem(ctx, descriptor, backupStamp)
+            : await installShippedFile(ctx, descriptor, backupStamp);
         if (result !== null) items.push(result);
       }
       return items;
     }
     for (const descriptor of ownedConfig) {
-      items.push(descriptor.kind === 'default-model'
-        ? await inspectDefaultModel(ctx, descriptor)
-        : await inspectShippedFile(ctx, descriptor));
+      items.push(await inspectOwnedItem(ctx, descriptor));
     }
     return items;
   },
