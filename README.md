@@ -91,7 +91,9 @@ lemonpi owns these settings and files under your Pi agent directory:
 
 - The default model `claude-code/claude-opus-5-5`: only `defaultProvider` and `defaultModel` in `settings.json`.
 - The OpenAI model metadata declared in `src/owned-config/openai-models.js`, merged into `models.json` for both `openai` (API) and `openai-codex` (ChatGPT sign-in).
-- The five subagent definitions: `agents/explorer.md`, `agents/implementer.md`, `agents/merger.md`, `agents/researcher.md`, and `agents/reviewer.md`.
+- The subagent definitions in `agents/`, listed in [Subagents](#subagents) below.
+- The pi-subagents settings: `subagents.json`.
+- The pi-tasks settings: `tasks-config.json`.
 - The pi-footer config: `extensions/pi-footer.json`.
 
 Every other setting and file is never touched or reported. Within `models.json`, unrelated providers, model IDs, credentials, provider endpoints, and undeclared fields are preserved. Model arrays merge by ID; the file is not replaced wholesale. Unreadable or structurally invalid managed sections are reported as failed and left unchanged. `install` and `update` restore owned items without asking; `status` reports them as **Drift** when missing or different from what lemonpi ships, without showing a diff.
@@ -101,6 +103,26 @@ Changes made through pi-footer's `/footer` UI, or by editing the agent files, ar
 Before rewriting an existing file that differs, lemonpi backs it up under `<agentDir>/lemonpi-backups/<timestamp>/`, with one folder per run. For `settings.json`, lemonpi backs it up only if it existed when the command began; settings created by Pi earlier in the same run are not backed up. Backups are never pruned or printed. Symlinked files are written through and the link is kept. Files lemonpi stops shipping stay as your files.
 
 `--skip footer` holds back only the package, not its config.
+
+### Subagents
+
+Each agent maps to a role in the workflow skills (`implement`, `implement-spec`, `two-axis-review`, `research`, `retro`, `idea`, `blast-radius`). Models are chosen so that writing, reviewing, and verifying each run on a different model.
+
+| File | Role | Model / thinking |
+| --- | --- | --- |
+| `agents/implementer.md` | Builds one ticket test-first, with the `tdd` skill preloaded | `claude-code/claude-opus-5-5` / high |
+| `agents/reviewer.md` | Read-only reviewer for `two-axis-review` | `openai-codex/gpt-6-astra` / high |
+| `agents/verifier.md` | Drives criteria through the real interface; refuses a worktree, since it makes its own baseline | `openai-codex/gpt-6.1-sol` / high |
+| `agents/researcher.md` | Background research with web tools and the `research` skill preloaded | `openai-codex/gpt-6.1-sol` / high |
+| `agents/transcript-auditor.md` | Session evidence for `retro` | `claude-code/claude-opus-5-5` / medium |
+| `agents/Explore.md` | Overrides the built-in `Explore` for read-only exploration | `openai-codex/gpt-6-luna` / low |
+| `agents/skeptic.md` | Cold, read-only red-team or second independent read | caller's choice (inherits the session model when unset) |
+| `agents/Plan.md` | Disables the built-in `Plan` agent | — |
+| `agents/explorer.md`, `agents/merger.md` | Retired; shipped disabled so an earlier copy stops being advertised | — |
+
+Agents that ship disabled stay in place, because removing a file lemonpi stops shipping would leave it as your file. A `tools` list narrows only built-in tools; extension tools (tasks, questions, web) still surface, and `ext:` selectors did not narrow them on Pi 1.4.0. So every agent except `researcher` sets `extensions: false`, and `researcher` excludes only the task and question extensions to keep its web tools.
+
+`subagents.json` makes an unknown `subagent_type` fail instead of falling back to `general-purpose`; fails startup on a broken agent file; caps nesting at one level; shows each agent's model and cost; reports subagent spend to `/cost`; and gives agents 8 grace turns at their turn limit. `tasks-config.json` keeps task files under the agent directory instead of each repository, leaves auto-cascade off (`implement-spec` owns the ticket frontier), and collapses completed tasks.
 
 ### OpenAI models
 

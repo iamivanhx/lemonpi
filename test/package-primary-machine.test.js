@@ -16,12 +16,19 @@ const primaryMachinePackages = [
 ];
 
 const shippedFiles = [
+  'agents/Explore.md',
+  'agents/Plan.md',
   'agents/explorer.md',
   'agents/implementer.md',
   'agents/merger.md',
   'agents/researcher.md',
   'agents/reviewer.md',
+  'agents/skeptic.md',
+  'agents/transcript-auditor.md',
+  'agents/verifier.md',
   'extensions/pi-footer.json',
+  'subagents.json',
+  'tasks-config.json',
 ];
 
 const primaryMachineSettings = {
@@ -96,7 +103,7 @@ test('primary machine status shows only default-model owned drift and install re
   ]);
   assert.match(installOutput, /Changed:/);
   // The changed default model is excluded from the OK count alongside three changed packages.
-  assert.match(installOutput, /OK: 12 items/);
+  assert.match(installOutput, /OK: 19 items/);
   const shippedFileStatsAfterInstall = await Promise.all(
     shippedFilePaths.map((path) => stat(path, { bigint: true })),
   );

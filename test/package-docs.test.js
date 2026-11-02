@@ -46,12 +46,19 @@ test('README Owned config section documents ownership and restore behavior', asy
   assert.ok(section.includes('`defaultProvider` and `defaultModel`'), 'limits the model setting ownership');
   for (const path of [
     'settings.json',
+    'agents/Explore.md',
+    'agents/Plan.md',
     'agents/explorer.md',
     'agents/implementer.md',
     'agents/merger.md',
     'agents/researcher.md',
     'agents/reviewer.md',
+    'agents/skeptic.md',
+    'agents/transcript-auditor.md',
+    'agents/verifier.md',
     'extensions/pi-footer.json',
+    'subagents.json',
+    'tasks-config.json',
   ]) {
     assert.ok(section.includes(`\`${path}\``), `names owned path ${path}`);
   }
