@@ -111,7 +111,7 @@ test('a successful Pi install that leaves a pin reports sanitized command diagno
     const fake = createFakeHost(t, {
       env: { LEMON_ACCESS_TOKEN: secret },
       runnerResults: [
-        { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' },
+        { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' },
         {
           code: 0,
           signal: null,

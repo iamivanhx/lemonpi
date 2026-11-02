@@ -214,7 +214,7 @@ test('install reports spawn errors and sanitizes bare environment secrets', asyn
   const fake = createFakeHost(t, {
     env: { APP_SECRET: secret },
     runnerResults: [
-      { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' },
+      { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' },
       { code: null, signal: null, stdout: '', stderr: '', error: `Error (EACCES): ${secret}` },
     ],
   });
@@ -251,7 +251,7 @@ test('install reports Pi not found for a package as a failure', async (t) => {
 test('install reports success without a declaration as a failed action', async (t) => {
   const fake = createFakeHost(t, {
     runnerResults: [
-      { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' },
+      { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' },
       { code: 0, signal: null, stdout: 'claiming success only', stderr: '' },
     ],
   });

@@ -18,7 +18,7 @@ const backupStamp = '2026-10-26T12-00-00.000Z';
 
 function model(provider, id) {
   const config = openaiModels.providers[provider];
-  return { ...config.models.find((entry) => entry.id === id), ...config.modelOverrides[id] };
+  return config.modelOverrides[id];
 }
 
 test('OpenAI models use documented API limits, reasoning efforts, modalities and tiered Standard prices', () => {
@@ -42,16 +42,37 @@ test('OpenAI models use documented API limits, reasoning efforts, modalities and
       input, output, cacheRead, cacheWrite,
       tiers: [{ inputTokensAbove: 272000, input: input * 2, output: output * 1.5, cacheRead: cacheRead * 2, cacheWrite: cacheWrite * 2 }],
     });
-    assert.equal(model('openai-codex', id).contextWindow, id === 'gpt-6.1-sol' ? 500000 : 272000);
+    assert.equal(model('openai-codex', id).contextWindow, ['gpt-6.1-sol', 'gpt-6.1-terra'].includes(id) ? 500000 : 272000);
   }
-  assert.equal(model('openai', 'gpt-6.1-terra').api, 'openai-responses');
-  assert.equal(model('openai-codex', 'gpt-6.1-terra').api, 'openai-codex-responses');
-  assert.equal(model('openai', 'gpt-6.1-terra').compat.supportsExplicitPromptCacheMode, true);
   for (const provider of Object.values(openaiModels.providers)) {
     assert.equal(provider.apiKey, undefined);
     assert.equal(provider.baseUrl, undefined);
-    assert.equal(provider.models[0].baseUrl, undefined, 'inherit configured provider URL');
+    assert.equal(provider.models, undefined, 'Pi 1.5.0 bundles all four; overrides keep catalog transport and compat');
+    for (const override of Object.values(provider.modelOverrides)) {
+      assert.equal(override.api, undefined);
+      assert.equal(override.compat, undefined);
+    }
   }
+});
+
+test('merging removes the Terra definition an earlier lemonpi wrote, so the built-in model is not replaced', () => {
+  const written = (subscription) => ({
+    id: 'gpt-6.1-terra', name: 'GPT-6.1 Terra', reasoning: true, input: ['text', 'image'],
+    contextWindow: subscription ? 272000 : 1050000, maxTokens: 128000, thinkingLevelMap: {}, cost: {},
+    api: subscription ? 'openai-codex-responses' : 'openai-responses', compat: { supportsStrictMode: true },
+  });
+  const existing = {
+    providers: {
+      openai: { apiKey: '$KEY', models: [written(false), { id: 'private' }] },
+      'openai-codex': { models: [written(true)] },
+    },
+  };
+  const merged = mergeModelsConfig(existing);
+  assert.deepEqual(merged.providers.openai.models, [{ id: 'private' }]);
+  assert.equal(merged.providers.openai.apiKey, '$KEY');
+  assert.equal(Object.hasOwn(merged.providers['openai-codex'], 'models'), false);
+  assert.deepEqual(mergeModelsConfig(merged), merged);
+  assert.equal(existing.providers.openai.models.length, 2, 'input must not be mutated');
 });
 
 test('merging owns only declared metadata, preserves user models, endpoints, credentials and extra fields', () => {
@@ -74,9 +95,7 @@ test('merging owns only declared metadata, preserves user models, endpoints, cre
   assert.equal(api.apiKey, '$MY_OPENAI_KEY');
   assert.equal(api.baseUrl, 'https://proxy.example/v1');
   assert.deepEqual(api.headers, { custom: 'keep' });
-  assert.deepEqual(api.models[0], { id: 'private' });
-  assert.deepEqual(api.models[1].headers, { extra: 'keep' });
-  assert.equal(api.models[1].contextWindow, 1050000);
+  assert.deepEqual(api.models, existing.providers.openai.models, 'a user-owned Terra definition is left alone');
   assert.deepEqual(api.modelOverrides['gpt-6-astra'].compat, { supportsToolSearch: true });
   assert.deepEqual(api.modelOverrides.custom, { maxTokens: 100 });
   assert.deepEqual(mergeModelsConfig(merged), merged);

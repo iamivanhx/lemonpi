@@ -417,7 +417,7 @@ test('Pi not-found and runner errors are reported and subsequent package updates
   const runnerError = createFakeHost(t, {
     env: { LEMON_TEST_SECRET: 'update-runner-secret' },
     runnerResults: [
-      { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' },
+      { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' },
       { code: null, signal: null, stdout: '', stderr: '', error: 'spawn denied update-runner-secret' },
     ],
   });

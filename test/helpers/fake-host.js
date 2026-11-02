@@ -322,7 +322,7 @@ export function createFakeHost(t, overrides = {}) {
           }
         }
         if (!result && command === 'pi' && args[0] === '--version') {
-          result = { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' };
+          result = { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' };
         } else if (!result && command === 'pi' && args[0] === 'update') {
           result = { code: 0, signal: null, stdout: `Updated ${args[1]}\n`, stderr: '' };
         } else if (!result && command === 'pi' && args[0] === 'install') {

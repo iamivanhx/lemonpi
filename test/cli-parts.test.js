@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { createFakeHost } from './helpers/fake-host.js';
 import { run } from '../src/cli.js';
 
-const passingPi = { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' };
+const passingPi = { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' };
 
 test('parts run only for registered commands', async (t) => {
   const seen = [];
@@ -248,7 +248,7 @@ test('parts receive parsed context and the injected agent directory', async (t) 
       flags: { skip: ['tasks', 'pretty'], skipSkills: true },
       dryRun: true,
       agentDir: '/configured/pi-agent',
-      piVersion: '1.4.0',
+      piVersion: '1.5.0',
       runner: configured.host.runner,
       signal: configured.host.signal,
     },
@@ -257,7 +257,7 @@ test('parts receive parsed context and the injected agent directory', async (t) 
       flags: { skip: [], skipSkills: false },
       dryRun: false,
       agentDir: `${fallback.home}/.pi/agent`,
-      piVersion: '1.4.0',
+      piVersion: '1.5.0',
       runner: fallback.host.runner,
       signal: fallback.host.signal,
     },
@@ -348,7 +348,7 @@ test('status lists every inventory item exactly once with its outcome', async (t
   const code = await run(['status'], fake.host, { parts: [part] });
 
   assert.equal(code, 1);
-  assert.ok(fake.stdout.text.startsWith('lemonpi status — Pi 1.4.0\n'));
+  assert.ok(fake.stdout.text.startsWith('lemonpi status — Pi 1.5.0\n'));
   assert.equal(
     fake.stdout.text.trimEnd().split('\n').at(-1),
     'Result: partial — exit 1 means the inventory has drift.',
@@ -414,8 +414,8 @@ test('doctor includes readiness while status hides the same readiness item', asy
   await run(['status'], status.host, { parts: [part] });
   await run(['doctor'], doctor.host, { parts: [part] });
 
-  assert.ok(status.stdout.text.startsWith('lemonpi status — Pi 1.4.0\n'));
-  assert.ok(doctor.stdout.text.startsWith('lemonpi doctor — Pi 1.4.0\n'));
+  assert.ok(status.stdout.text.startsWith('lemonpi status — Pi 1.5.0\n'));
+  assert.ok(doctor.stdout.text.startsWith('lemonpi doctor — Pi 1.5.0\n'));
   assert.doesNotMatch(status.stdout.text, /Readiness:|runtime check/);
   assert.ok(doctor.stdout.text.includes('Readiness:'));
   assert.ok(doctor.stdout.text.includes('runtime check: Warning — restart required'));
@@ -495,7 +495,7 @@ test('status and doctor with an empty parts list retain the Pi-only summary', as
   const missingPiCode = await run(['status'], missingPi.host, { parts: [] });
 
   for (const output of [status.stdout.text, doctor.stdout.text]) {
-    assert.match(output, /Pi: ok \(1\.4\.0\)/);
+    assert.match(output, /Pi: ok \(1\.5\.0\)/);
     assert.doesNotMatch(output, /Inventory:|Notices:|Readiness:/);
   }
   assert.equal(missingPiCode, 2);
@@ -616,7 +616,7 @@ test('install --dry-run labels changed and skipped items as an unchanged preview
 
   await run(['install', '--dry-run'], fake.host, { parts: [part] });
 
-  assert.match(fake.stdout.text, /lemonpi install — Pi 1\.4\.0 — dry run \(nothing was changed\)/);
+  assert.match(fake.stdout.text, /lemonpi install — Pi 1\.5\.0 — dry run \(nothing was changed\)/);
   assert.match(fake.stdout.text, /Would change:\n  - preview package/);
   assert.match(fake.stdout.text, /Would skip:\n  - skipped package/);
 
@@ -759,7 +759,7 @@ test('update and skills --dry-run use the exceptions preview summary', async (t)
     const code = await run([command, '--dry-run'], fake.host, { parts: [part] });
 
     assert.equal(code, 0, `${command} preview exits successfully`);
-    assert.match(fake.stdout.text, new RegExp(`lemonpi ${command} — Pi 1\\.4\\.0 — dry run \\(nothing was changed\\)`));
+    assert.match(fake.stdout.text, new RegExp(`lemonpi ${command} — Pi 1\\.5\\.0 — dry run \\(nothing was changed\\)`));
     assert.match(fake.stdout.text, /Would change:/);
     assert.match(fake.stdout.text, /Would skip:/);
   }

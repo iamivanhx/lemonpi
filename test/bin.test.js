@@ -46,7 +46,7 @@ for (const absoluteTarget of [false, true]) {
       packages: catalog.map(({ source }) => source),
     }));
     const fakePi = join(directory, 'pi');
-    await writeFile(fakePi, '#!/bin/sh\n[ "$1" = "--version" ] || exit 1\nprintf "Pi 1.4.0\\n"\n', { mode: 0o755 });
+    await writeFile(fakePi, '#!/bin/sh\n[ "$1" = "--version" ] || exit 1\nprintf "Pi 1.5.0\\n"\n', { mode: 0o755 });
     await symlink(join(dotfiles, 'subdir'), join(agents, 'redirect'));
     const link = join(agents, 'explorer.md');
     const linkTarget = `${absoluteTarget ? `${agents}/` : ''}redirect/../local.md`;

@@ -199,7 +199,7 @@ test('a failed replacement install keeps the replaced package and reports saniti
 test('an unverifiable replacement install keeps the replaced package and preserves diagnostics', async (t) => {
   const fake = createFakeHost(t, {
     runnerResults: [
-      { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' },
+      { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' },
       { code: 0, signal: null, stdout: 'Pi claimed the package was installed', stderr: '' },
     ],
   });
@@ -417,7 +417,7 @@ test('update migrates then updates subagents before later catalog packages', asy
 test('a successful remove that leaves the replaced declaration is not reported as migrated', async (t) => {
   const fake = createFakeHost(t, {
     runnerResults: [
-      { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' },
+      { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' },
       { code: 0, signal: null, stdout: 'Pi claimed remove success', stderr: '' },
     ],
   });
