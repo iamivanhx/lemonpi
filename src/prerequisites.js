@@ -2,7 +2,7 @@ import { sanitizeDiagnostic } from './sanitize.js';
 
 const PLATFORM_REFUSAL = 'Windows is not supported; lemonpi runs on macOS and Debian/Linux';
 const REQUIRED_NODE_VERSION = '22.19.0';
-const REQUIRED_PI_VERSION = '1.4.0';
+const REQUIRED_PI_VERSION = '1.5.0';
 const SEMVER_PATTERN = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const PI_VERSION_PATTERN = /^(?:\S+\s+)?(v?(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/;
 

@@ -237,7 +237,7 @@ test('fake Pi reports its default Pi version', async (t) => {
   assert.deepEqual(await fake.host.runner('pi', ['--version']), {
     code: 0,
     signal: null,
-    stdout: 'Pi 1.4.0\n',
+    stdout: 'Pi 1.5.0\n',
     stderr: '',
   });
 });

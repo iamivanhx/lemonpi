@@ -19,7 +19,7 @@ test('run prints the package version without invoking the runner', async (t) => 
   assert.deepEqual(fake.runnerCalls, []);
 });
 
-const passingPi = { code: 0, signal: null, stdout: 'Pi 1.4.0\n', stderr: '' };
+const passingPi = { code: 0, signal: null, stdout: 'Pi 1.5.0\n', stderr: '' };
 
 test('run defaults to install when argv is empty', async (t) => {
   const fake = createFakeHost(t, { runnerResults: [passingPi] });
@@ -28,7 +28,7 @@ test('run defaults to install when argv is empty', async (t) => {
 
   assert.equal(code, 0);
   assert.match(fake.stdout.text, /lemonpi install/);
-  assert.match(fake.stdout.text, /Pi 1\.4\.0/);
+  assert.match(fake.stdout.text, /Pi 1\.5\.0/);
 });
 
 test('run accepts each supported command', async (t) => {
@@ -39,7 +39,7 @@ test('run accepts each supported command', async (t) => {
 
     assert.equal(code, 0);
     assert.match(fake.stdout.text, new RegExp(`lemonpi ${command}`));
-    assert.match(fake.stdout.text, /Pi 1\.4\.0/);
+    assert.match(fake.stdout.text, /Pi 1\.5\.0/);
     assert.match(fake.stdout.text, /Pi: ok/);
     assert.match(fake.stdout.text, /Result: ok.*exit 0/);
     assert.deepEqual(fake.runnerCalls.map(({ command: calledCommand, args }) => [calledCommand, args]), [['pi', ['--version']]]);
@@ -88,21 +88,21 @@ test('missing Pi is a failed prerequisite in the summary without an install sugg
 });
 
 test('Pi version output must parse and meet the minimum, while supported Node and Pi versions pass', async (t) => {
-  for (const stdout of ['garbage', '1.3.9']) {
+  for (const stdout of ['garbage', '1.4.9']) {
     const fake = createFakeHost(t, { runnerResults: [{ ...passingPi, stdout }] });
     const code = await run(['install'], fake.host, { parts: [] });
 
     assert.equal(code, 2);
     assert.match(fake.stdout.text, /Pi: failed/i);
-    assert.match(fake.stdout.text, stdout === 'garbage' ? /unparseable/i : /1\.3\.9/);
+    assert.match(fake.stdout.text, stdout === 'garbage' ? /unparseable/i : /1\.4\.9/);
     assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
   }
 
   for (const [stdout, nodeVersion] of [
-    ['1.4.0', '22.19.0'],
-    ['v1.4.0', '24.14.1'],
-    ['pi 1.4.0', '22.19.0'],
-    ['pi v1.4.0+build.7', '22.19.0+build.7'],
+    ['1.5.0', '22.19.0'],
+    ['v1.5.0', '24.14.1'],
+    ['pi 1.5.0', '22.19.0'],
+    ['pi v1.5.0+build.7', '22.19.0+build.7'],
     ['1.5.2', '24.14.1'],
   ]) {
     const fake = createFakeHost(t, { nodeVersion, runnerResults: [{ ...passingPi, stdout }] });
@@ -110,7 +110,7 @@ test('Pi version output must parse and meet the minimum, while supported Node an
 
     assert.equal(code, 0);
     assert.match(fake.stdout.text, /Pi: ok/);
-    if (stdout.includes('+build.7')) assert.match(fake.stdout.text, /Pi 1\.4\.0\+build\.7/);
+    if (stdout.includes('+build.7')) assert.match(fake.stdout.text, /Pi 1\.5\.0\+build\.7/);
     assert.match(fake.stdout.text, /Result: ok.*exit 0/);
     assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
   }
@@ -656,7 +656,7 @@ test('run preserves both prerequisite streams and sanitizes runner errors', asyn
 });
 
 test('run rejects empty or repeated Pi build-metadata identifiers', async (t) => {
-  for (const stdout of ['1.4.0+.', '1.4.0+foo..bar']) {
+  for (const stdout of ['1.5.0+.', '1.5.0+foo..bar']) {
     const fake = createFakeHost(t, { runnerResults: [{ ...passingPi, stdout }] });
 
     const code = await run(['install'], fake.host);

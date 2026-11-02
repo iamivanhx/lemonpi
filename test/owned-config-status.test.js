@@ -417,7 +417,7 @@ test('skills retains its existing output and exit code without owned-config inve
   const code = await run(['skills'], fake.host);
 
   assert.equal(code, 0);
-  assert.equal(fake.stdout.text, 'lemonpi skills — Pi 1.4.0\nPrerequisites:\n  Pi: ok (1.4.0)\nResult: ok — exit 0 means the run completed successfully.\n');
+  assert.equal(fake.stdout.text, 'lemonpi skills — Pi 1.5.0\nPrerequisites:\n  Pi: ok (1.5.0)\nResult: ok — exit 0 means the run completed successfully.\n');
   assert.deepEqual(fake.runnerCalls.map(({ command, args }) => [command, args]), [['pi', ['--version']]]);
   for (const name of ownedItems) assert.ok(!fake.stdout.text.includes(name));
 });

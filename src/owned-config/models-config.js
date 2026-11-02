@@ -7,28 +7,70 @@ function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// Model definitions an earlier lemonpi wrote and no longer ships. A `models`
+// entry replaces the catalog model with the same ID, so a leftover entry would
+// hide the richer built-in one. Pi 1.5.0 bundles GPT-6.1 Terra.
+const RETIRED_MODELS = {
+  openai: ['gpt-6.1-terra'],
+  'openai-codex': ['gpt-6.1-terra'],
+};
+const RETIRED_MODEL_FIELDS = new Set([
+  'id', 'name', 'reasoning', 'input', 'contextWindow', 'maxTokens', 'thinkingLevelMap', 'cost', 'api', 'compat',
+]);
+
+function validModels(models) {
+  if (!Array.isArray(models) || models.some((model) => !object(model) || typeof model.id !== 'string')) {
+    throw new TypeError('Expected model definitions');
+  }
+  const ids = models.map((model) => model.id);
+  if (new Set(ids).size !== ids.length) throw new TypeError('Duplicate model IDs');
+}
+
+// Remove a retired entry only when it holds nothing but fields lemonpi wrote;
+// an entry with any other field is the user's and stays.
+function retireModels(existing) {
+  if (!object(existing.providers)) return existing;
+  // A managed provider's models list must be valid, even with nothing to merge.
+  for (const providerId of Object.keys(RETIRED_MODELS)) {
+    const config = existing.providers[providerId];
+    if (object(config) && Object.hasOwn(config, 'models')) validModels(config.models);
+  }
+  let providers = existing.providers;
+  for (const [providerId, ids] of Object.entries(RETIRED_MODELS)) {
+    const config = providers[providerId];
+    if (!object(config) || !Array.isArray(config.models)) continue;
+    const kept = config.models.filter((model) => !(object(model) && ids.includes(model.id)
+      && Object.keys(model).every((key) => RETIRED_MODEL_FIELDS.has(key))));
+    if (kept.length === config.models.length) continue;
+    const { models: _models, ...rest } = config;
+    providers = { ...providers, [providerId]: kept.length > 0 ? { ...rest, models: kept } : rest };
+  }
+  return providers === existing.providers ? existing : { ...existing, providers };
+}
+
+export function mergeModelsConfig(existing, declared = openaiModels) {
+  if (!object(existing)) throw new TypeError('Expected models configuration object');
+  return mergeDeclared(retireModels(existing), declared);
+}
+
 // Own only declared fields. Models arrays merge by ID rather than replacing
 // user models; ordinary arrays (modalities and pricing tiers) are owned leaves.
-export function mergeModelsConfig(existing, declared = openaiModels) {
+function mergeDeclared(existing, declared) {
   if (!object(existing)) throw new TypeError('Expected models configuration object');
   const result = { ...existing };
   for (const [key, value] of Object.entries(declared)) {
     if (key === 'models' && Array.isArray(value)) {
       const previous = Object.hasOwn(existing, key) ? existing[key] : [];
-      if (!Array.isArray(previous) || previous.some((model) => !object(model) || typeof model.id !== 'string')) {
-        throw new TypeError('Expected model definitions');
-      }
-      const ids = previous.map((model) => model.id);
-      if (new Set(ids).size !== ids.length) throw new TypeError('Duplicate model IDs');
+      validModels(previous);
       result[key] = previous.map((model) => ({ ...model }));
       for (const model of value) {
         const index = result[key].findIndex((entry) => entry.id === model.id);
         if (index < 0) result[key].push(structuredClone(model));
-        else result[key][index] = mergeModelsConfig(result[key][index], model);
+        else result[key][index] = mergeDeclared(result[key][index], model);
       }
     } else if (object(value)) {
       const previous = Object.hasOwn(existing, key) ? existing[key] : {};
-      result[key] = mergeModelsConfig(previous, value);
+      result[key] = mergeDeclared(previous, value);
     } else {
       result[key] = structuredClone(value);
     }

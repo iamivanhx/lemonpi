@@ -38,33 +38,22 @@ function metadata([id, name, supportsNone, input, output, cacheRead, cacheWrite]
   };
 }
 
+// Codex windows: Sol's model page specifies 500K, and Pi 1.5.0 ships Terra at
+// 500K. Retain Pi's conservative 272K for the others; the API's 1.05M is not a
+// subscription guarantee.
+const CODEX_CONTEXT_WINDOWS = { 'gpt-6.1-sol': 500000, 'gpt-6.1-terra': 500000 };
+
 function provider(subscription) {
   const modelOverrides = {};
-  const models = [];
   for (const spec of specs) {
     const id = spec[0];
-    // Sol's model page specifies 500K in Codex. Retain Pi's conservative
-    // 272K for the others; the API's 1.05M is not a subscription guarantee.
-    const contextWindow = subscription ? (id === 'gpt-6.1-sol' ? 500000 : 272000) : 1050000;
-    const { id: modelId, ...override } = metadata(spec, contextWindow);
-    // Also override matching user definitions, without dropping extra fields.
+    const contextWindow = subscription ? (CODEX_CONTEXT_WINDOWS[id] ?? 272000) : 1050000;
+    const { id: _id, ...override } = metadata(spec, contextWindow);
+    // Override metadata only, so every model keeps the catalog's transport,
+    // compatibility flags and image limits (Pi 1.5.0 bundles all four).
     modelOverrides[id] = override;
-    if (id === 'gpt-6.1-terra') {
-      // Terra is absent from Pi 1.4.0's bundled catalog. Use a model-level
-      // transport, inheriting the provider URL and authentication.
-      models.push({
-        id: modelId,
-        ...override,
-        api: subscription ? 'openai-codex-responses' : 'openai-responses',
-        compat: {
-          supportsStrictMode: true,
-          ...(!subscription ? { supportsExplicitPromptCacheMode: true } : {}),
-        },
-      });
-    }
-    // Other models retain catalog compatibility flags and image limits.
   }
-  return { modelOverrides, models };
+  return { modelOverrides };
 }
 
 export const openaiModels = {

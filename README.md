@@ -18,7 +18,7 @@ lemonpi configures an existing Pi with Ivan's packages, settings, subagent defin
 
 - macOS or Debian/Linux.
 - Node.js 22.19 or newer.
-- An existing Pi CLI (`pi`) version 1.4.0 or newer on `PATH`.
+- An existing Pi CLI (`pi`) version 1.5.0 or newer on `PATH`.
 
 ## Quick start
 
@@ -46,7 +46,7 @@ npx github:iamivanhx/lemonpi
 | --- | --- |
 | 0 | Ok. Warnings and Skipped parts are allowed. |
 | 1 | Partial result: only optional packages failed; or Drift was found by `status` or `doctor`. |
-| 2 | Failed: a required failure, a settings write failed, Pi is missing or older than 1.4.0, or usage is invalid. |
+| 2 | Failed: a required failure, a settings write failed, Pi is missing or older than 1.5.0, or usage is invalid. |
 
 With `--dry-run`, the exit code is only 0 or 2.
 
@@ -135,9 +135,9 @@ lemonpi configures the current GPT-6 family from the [OpenAI model documentation
 | [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) | 1,050,000 | 128,000 | none, low, medium, high, xhigh, max |
 | [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna) | 1,050,000 | 128,000 | none, low, medium, high, xhigh, max |
 
-All four accept text and images and produce text. Pi's `off` maps to `none` only where supported; `minimal` is disabled. API models use Pi's built-in Responses transport for reasoning with tools. Terra is explicitly added with the appropriate Responses transport because Pi 1.4.0 does not bundle it; other models use metadata overrides to preserve built-in compatibility flags.
+All four accept text and images and produce text. Pi's `off` maps to `none` only where supported; `minimal` is disabled. Pi 1.5.0 bundles all four, so lemonpi only overrides their metadata; each model keeps Pi's built-in transport, compatibility flags, and image limits. lemonpi removes the Terra definition an earlier version added for Pi 1.4.0, because a full definition would replace Pi's built-in model; an entry carrying any field lemonpi did not write is left alone.
 
-The API context budget comprises at most 922,000 input tokens plus 128,000 output tokens. Public API limits are **not** applied to ChatGPT subscriptions: Codex retains Pi 1.4.0's conservative 272,000 context for Astra and Luna, uses the documented 500,000 for Sol, and starts Terra at a conservative 272,000 pending a published subscription-specific limit. Declaring a model does not establish that your subscription has access to it.
+The API context budget comprises at most 922,000 input tokens plus 128,000 output tokens. Public API limits are **not** applied to ChatGPT subscriptions: Codex retains Pi's conservative 272,000 context for Astra and Luna, and uses 500,000 for Sol (documented by OpenAI) and Terra (Pi 1.5.0's catalog). Declaring a model does not establish that your subscription has access to it.
 
 Cost estimates use Standard API pricing, including cached reads, 30-minute cache writes, and the request-wide price increase above 272,000 input tokens (2× input/cache and 1.5× output). Codex uses those rates only as estimates, not subscription billing. Fast, Ultrafast, Batch, Flex, regional processing, and longer cache-retention rates are not represented.
 
