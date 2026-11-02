@@ -3,12 +3,19 @@ import { dirname, join } from 'node:path';
 import { mergeModelsConfig } from '../../src/owned-config/models-config.js';
 
 const shippedFiles = [
+  'agents/Explore.md',
+  'agents/Plan.md',
   'agents/explorer.md',
   'agents/implementer.md',
   'agents/merger.md',
   'agents/researcher.md',
   'agents/reviewer.md',
+  'agents/skeptic.md',
+  'agents/transcript-auditor.md',
+  'agents/verifier.md',
   'extensions/pi-footer.json',
+  'subagents.json',
+  'tasks-config.json',
 ];
 
 export async function seedOwnedConfigFixture(fake, { defaultModel = true } = {}) {

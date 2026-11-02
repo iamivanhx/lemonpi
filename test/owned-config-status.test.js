@@ -7,12 +7,19 @@ import { run } from '../src/cli.js';
 import { mergeModelsConfig } from '../src/owned-config/models-config.js';
 
 const shippedFiles = [
+  'agents/Explore.md',
+  'agents/Plan.md',
   'agents/explorer.md',
   'agents/implementer.md',
   'agents/merger.md',
   'agents/researcher.md',
   'agents/reviewer.md',
+  'agents/skeptic.md',
+  'agents/transcript-auditor.md',
+  'agents/verifier.md',
   'extensions/pi-footer.json',
+  'subagents.json',
+  'tasks-config.json',
 ];
 
 const ownedItems = [
@@ -95,17 +102,74 @@ test('the shipped agent definitions and footer config are present and named corr
   }
 });
 
-test('shipped implementer, researcher, and reviewer pin the requested 6.1 models', async () => {
-  for (const [agent, model] of [
-    ['implementer', 'openai-codex/gpt-6.1-terra'],
-    ['researcher', 'openai-codex/gpt-6.1-sol'],
-    ['reviewer', 'openai-codex/gpt-6.1-sol'],
+function frontMatterOf(contents, agent) {
+  const frontMatter = contents.match(/^---\s*\n([\s\S]*?)\n---/);
+  assert.ok(frontMatter, `${agent} has front matter`);
+  return (key) => frontMatter[1].match(new RegExp(`^${key}:\\s*(.*?)\\s*$`, 'm'))?.[1];
+}
+
+async function readShippedAgent(agent) {
+  return readFile(new URL(`../src/owned-config/shipped-content/agents/${agent}.md`, import.meta.url), 'utf8');
+}
+
+test('shipped agents pin the agreed model and thinking level', async () => {
+  for (const [agent, model, thinking] of [
+    ['Explore', 'openai-codex/gpt-6-luna', 'low'],
+    ['implementer', 'claude-code/claude-opus-5-5', 'high'],
+    ['researcher', 'openai-codex/gpt-6.1-sol', 'high'],
+    ['reviewer', 'openai-codex/gpt-6-astra', 'high'],
+    ['transcript-auditor', 'claude-code/claude-opus-5-5', 'medium'],
+    ['verifier', 'openai-codex/gpt-6.1-sol', 'high'],
   ]) {
-    const contents = await readFile(new URL(`../src/owned-config/shipped-content/agents/${agent}.md`, import.meta.url), 'utf8');
-    const frontMatter = contents.match(/^---\s*\n([\s\S]*?)\n---/);
-    assert.ok(frontMatter, `${agent} has front matter`);
-    assert.equal(frontMatter[1].match(/^model:\s*(.*?)\s*$/m)?.[1], model, agent);
+    const field = frontMatterOf(await readShippedAgent(agent), agent);
+    assert.equal(field('model'), model, `${agent} model`);
+    assert.equal(field('thinking'), thinking, `${agent} thinking`);
   }
+});
+
+test('the skeptic agent leaves its model to the caller', async () => {
+  const field = frontMatterOf(await readShippedAgent('skeptic'), 'skeptic');
+  assert.equal(field('model'), undefined);
+});
+
+test('retired and unused agents ship disabled so they stop being advertised', async () => {
+  for (const agent of ['Plan', 'explorer', 'merger']) {
+    const field = frontMatterOf(await readShippedAgent(agent), agent);
+    assert.equal(field('enabled'), 'false', `${agent} is disabled`);
+  }
+});
+
+test('shipped agents name only built-in tools outside ext: selectors', async () => {
+  const builtins = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
+  for (const agent of ['Explore', 'implementer', 'researcher', 'reviewer', 'skeptic', 'transcript-auditor', 'verifier']) {
+    const contents = await readShippedAgent(agent);
+    const tools = contents.match(/^tools:\s*\n((?:\s+- .*\n)+)/m)?.[1]
+      .split('\n').map((line) => line.replace(/^\s+- /, '').trim()).filter(Boolean);
+    assert.ok(tools?.length, `${agent} lists tools`);
+    for (const tool of tools) {
+      assert.ok(builtins.has(tool) || tool.startsWith('ext:'), `${agent}: ${tool} is a built-in or ext: selector`);
+    }
+  }
+});
+
+test('shipped subagents and tasks settings hold the agreed values', async () => {
+  const subagents = JSON.parse(await readFile(new URL('../src/owned-config/shipped-content/subagents.json', import.meta.url), 'utf8'));
+  assert.deepEqual(subagents, {
+    fallbackSubagent: 'none',
+    strictAgentFiles: true,
+    maxSubagentDepth: 1,
+    showModel: true,
+    showCost: true,
+    reportUsage: true,
+    graceTurns: 8,
+  });
+  const tasks = JSON.parse(await readFile(new URL('../src/owned-config/shipped-content/tasks-config.json', import.meta.url), 'utf8'));
+  assert.deepEqual(tasks, {
+    taskScope: 'session-global',
+    autoCascade: false,
+    autoClearCompleted: 'on_list_complete',
+    collapseCompleted: true,
+  });
 });
 
 test('status lists missing owned config once in manifest order', async (t) => {

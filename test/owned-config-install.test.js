@@ -21,12 +21,19 @@ import { run } from '../src/cli.js';
 import { catalog } from '../src/packages/catalog.js';
 
 const shippedFiles = [
+  'agents/Explore.md',
+  'agents/Plan.md',
   'agents/explorer.md',
   'agents/implementer.md',
   'agents/merger.md',
   'agents/researcher.md',
   'agents/reviewer.md',
+  'agents/skeptic.md',
+  'agents/transcript-auditor.md',
+  'agents/verifier.md',
   'extensions/pi-footer.json',
+  'subagents.json',
+  'tasks-config.json',
 ];
 
 async function seedShippedFiles(fake) {
@@ -159,7 +166,7 @@ test('install --dry-run reports no owned changes for a fully matching machine', 
   ));
   assert.equal(code, 0, fake.stdout.text);
   assert.deepEqual(ownedChangeLines, []);
-  assert.match(fake.stdout.text, /OK: 8 items/);
+  assert.match(fake.stdout.text, /OK: 15 items/);
   assert.deepEqual(await snapshotTree(fake.piCodingAgentDir), before);
   assert.deepEqual(hostWrites, []);
 });
@@ -244,7 +251,7 @@ test('install adds all shipped files to an empty agent directory without backups
     assert.deepEqual(installed, shipped, `${path} matches the shipped bytes`);
     assert.equal(fake.stdout.text.split(`${path}: added`).length - 1, 1);
   }
-  assert.equal((fake.stdout.text.match(/: added/g) ?? []).length, 6);
+  assert.equal((fake.stdout.text.match(/: added/g) ?? []).length, 13);
   assert.match(fake.stdout.text, /default model \(claude-code\/claude-opus-5-5\): set to claude-code\/claude-opus-5-5/);
   assert.doesNotMatch(fake.stdout.text, /openai-codex|gpt-6-luna/);
   await assert.rejects(access(join(fake.piCodingAgentDir, 'lemonpi-backups')));
@@ -292,7 +299,7 @@ test('install changes only the primary-machine default model keys and backs up t
   assert.doesNotMatch(fake.stdout.text, /lemonpi-backups/);
 });
 
-test('a second install leaves shipped-file mtimes unchanged and counts all six as ok', async (t) => {
+test('a second install leaves shipped-file mtimes unchanged and counts every shipped file as ok', async (t) => {
   const fake = createFakeHost(t);
   await seedShippedFiles(fake);
   const paths = shippedFiles.map((path) => join(fake.piCodingAgentDir, path));
@@ -302,7 +309,7 @@ test('a second install leaves shipped-file mtimes unchanged and counts all six a
   const secondCode = await run(['install'], fake.host);
 
   assert.equal(secondCode, 0);
-  assert.match(fake.stdout.text, /OK: 16 items/, fake.stdout.text);
+  assert.match(fake.stdout.text, /OK: 23 items/, fake.stdout.text);
   const after = await Promise.all(paths.map((path) => stat(path, { bigint: true })));
   assert.deepEqual(after.map(({ mtimeNs }) => mtimeNs), before.map(({ mtimeNs }) => mtimeNs));
   await assert.rejects(access(join(fake.piCodingAgentDir, 'lemonpi-backups')));
@@ -682,8 +689,8 @@ test('new owned files retain the default final mode after private temporary crea
     const code = await run(['install'], fake.host);
 
     assert.equal(code, 0, fake.stdout.text);
-    assert.equal(created.length, 8);
-    assert.deepEqual(created, Array(8).fill(0o600));
+    assert.equal(created.length, 15);
+    assert.deepEqual(created, Array(15).fill(0o600));
     for (const path of ['settings.json', 'models.json', ...shippedFiles]) {
       assert.equal((await stat(join(fake.piCodingAgentDir, path))).mode & 0o777, 0o644, path);
     }

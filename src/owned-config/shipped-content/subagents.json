@@ -1,0 +1,9 @@
+{
+  "fallbackSubagent": "none",
+  "strictAgentFiles": true,
+  "maxSubagentDepth": 1,
+  "showModel": true,
+  "showCost": true,
+  "reportUsage": true,
+  "graceTurns": 8
+}
